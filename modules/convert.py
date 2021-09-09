@@ -2,6 +2,7 @@
 # Created on:   7/29/2021
 #
 # History:      7/29/2021 - Added byte conversions 
+#               9/09/2021 - Fixed type error in ieee754_to_int()
 #
 # See SFF-8472 for tables that determine what each
 # value means in the memory map.

@@ -50,47 +50,26 @@ class SFP_I2C_Bus:
 
 def main():
     
-    
-
-    '''DEVICE_BUS = 1
-    # Really 0xA0 = 0x10100000,
-    # but we need to use 0x50 since the last bit
-    # is the read/write bit. The I2c addresses are
-    # 7 bit binary numbers with the last being the
-    # read or write bit
-    DEVICE_ADDR = 0x50
-
-    i2c_bus = smbus2.SMBus(DEVICE_BUS)
-
-    bus_dump = []
-
-    for i in range(0xFF + 1):
-
-        res = i2c_bus.read_byte_data(DEVICE_ADDR, i)
-        bus_dump.append(res)
-        print(format(res, '02X'), end=' ')
-
-        if (i + 1) % 16 == 0:
-            print()
-
-    i2c_bus.close()'''
-
+    # Create an SFP_I2C bus object to interact with
+    # the SFP connected to the experimenter board
     sfp_bus = SFP_I2C_Bus()
 
     a0_dump = sfp_bus.dumpA0()
     a2_dump = sfp_bus.dumpA2()
 
+    # Create an sfp defined in modules/sfp,py
     sfp = SFP(a0_dump, a2_dump)
 
+    # just debug, print diagnostic monitoring type
     print(sfp.get_diagnostic_monitoring_type())
 
-    # Read temperature every 0.5 seconds
     
     print("{:<20} {:<20} {:<30} {:<30} {:<30}".format("Temperature (C)", "Voltage (100 uV)", "TX Bias Current (2 uA)", "TX Power (0.1 uW)", "RX Power (0.1 uW)"))
     # print(sfp.get_voltage_slope())
     #print(sfp.get_voltage_offset())
     while True:
-
+        
+        # Format measurements nicely
         print("{:<20.5f} {:<20} {:<30} {:<30} {:<30.5f}".format(sfp.get_temperature(), 
             sfp.get_vcc(), 
             sfp.get_tx_bias_current(), 
@@ -98,10 +77,20 @@ def main():
             sfp.get_rx_power())
         )
 
+        # re-read the entirety of diagnostics memory
+        # should probably create a new function that ONLY
+        # reads the few values we need
         a2_dump = sfp_bus.dumpA2()
+        
+        # Update the page in the sfp object
         sfp.page_a2 = a2_dump
+
+        # Sleep for some time
         time.sleep(0.5)
 
+
+    # Code below here is not run, I was testing the above code for
+    # reading the parameters
     return
 
     while True:

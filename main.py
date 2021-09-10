@@ -105,52 +105,29 @@ def main():
     #print(sfp.get_voltage_offset())
     while True:
         
-        # Format measurements nicely
-        print("{:<20.5f} {:<20.5f} {:<30.5f} {:<30.5f} {:<30.5f}".format(sfp.get_temperature(), 
-            sfp.get_vcc() * 10**(-4), 
-            sfp.get_tx_bias_current() * 2 * 10**(-3), 
-            sfp.get_tx_power(), 
-            sfp.get_rx_power())
-        )
+        try:
+            # Format measurements nicely
+            print("{:<20.5f} {:<20.5f} {:<30.5f} {:<30.5f} {:<30.5f}".format(sfp.get_temperature(), 
+                sfp.get_vcc() * 10**(-4), 
+                sfp.get_tx_bias_current() * 2 * 10**(-3), 
+                sfp.get_tx_power(), 
+                sfp.get_rx_power())
+            )
 
-        # re-read the entirety of diagnostics memory
-        # should probably create a new function that ONLY
-        # reads the few values we need
-        a2_dump = sfp_bus.dumpA2()
-        
-        # Update the page in the sfp object
-        sfp.page_a2 = a2_dump
+            # re-read the entirety of diagnostics memory
+            # should probably create a new function that ONLY
+            # reads the few values we need
+            a2_dump = sfp_bus.dumpA2()
+            
+            # Update the page in the sfp object
+            sfp.page_a2 = a2_dump
 
-        # Sleep for some time
-        time.sleep(0.5)
-
-
-    # Code below here is not run, I was testing the above code for
-    # reading the parameters
-    return
-
-    while True:
-        
-
-        '''
-        for idx, num in enumerate(bus_dump):
-
-            if num >= 32 and num <= 126:
-                print(chr(num), end='')
-            else:
-                print('.', end='')
-
-            if (idx + 1) % 16 == 0:
-                print()
-        '''
-
-        a2_dump = sfp_bus.dumpA2()
-        sfp.page_a2 = a2_dump
-
-        print('\n')
-        time.sleep(5)
-
-    sfp_bus.end_communication()
+            # Sleep for some time
+            time.sleep(0.5)
+        except KeyboardInterrupt as ex:
+            print("\nKeyboard Interrupt, closing bus communication and exiting...")
+            sfp_bus.end_communication()
+            return
     
     
 if __name__ == '__main__':

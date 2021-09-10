@@ -48,6 +48,34 @@ class SFP_I2C_Bus:
         self.bus.close()
 
 
+def print_bus_dump(bus_dump: List[int], ascii: bool) -> None:
+
+    # Print header
+    if ascii:
+        print(f'0123456789ABCDEF')
+    else:
+        print('{:>6}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}'.format('0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'))
+
+    for idx, num in enumerate(bus_dump):
+
+        if ascii:
+            if num >= 32 and num <= 126:
+                print(chr(num), end='')
+            else:
+                print('.', end='')
+        else:
+            if idx % 16 == 0:
+                print(format(idx, '02X') + ':', end=' ')
+
+            print(format(num, '02X'), end=' ')
+            
+
+        if (idx + 1) % 16 == 0:
+            print()
+
+        
+
+
 def main():
     
     # Create an SFP_I2C bus object to interact with
@@ -57,6 +85,14 @@ def main():
     a0_dump = sfp_bus.dumpA0()
     a2_dump = sfp_bus.dumpA2()
 
+    print("Page 0xA0")
+    print_bus_dump(a0_dump, False)
+    print_bus_dump(a0_dump, True)
+    print("\n\nPage 0xA2")
+    print_bus_dump(a2_dump, False)
+    print_bus_dump(a2_dump, True)
+
+
     # Create an sfp defined in modules/sfp,py
     sfp = SFP(a0_dump, a2_dump)
 
@@ -64,15 +100,15 @@ def main():
     print(sfp.get_diagnostic_monitoring_type())
 
     
-    print("{:<20} {:<20} {:<30} {:<30} {:<30}".format("Temperature (C)", "Voltage (100 uV)", "TX Bias Current (2 uA)", "TX Power (0.1 uW)", "RX Power (0.1 uW)"))
+    print("{:<20} {:<20} {:<30} {:<30} {:<30}".format("Temperature (C)", "Voltage (V)", "TX Bias Current (mA)", "TX Power (0.1 uW)", "RX Power (0.1 uW)"))
     # print(sfp.get_voltage_slope())
     #print(sfp.get_voltage_offset())
     while True:
         
         # Format measurements nicely
-        print("{:<20.5f} {:<20} {:<30} {:<30} {:<30.5f}".format(sfp.get_temperature(), 
-            sfp.get_vcc(), 
-            sfp.get_tx_bias_current(), 
+        print("{:<20.5f} {:<20.5f} {:<30.5f} {:<30.5f} {:<30.5f}".format(sfp.get_temperature(), 
+            sfp.get_vcc() * 10**(-4), 
+            sfp.get_tx_bias_current() * 2 * 10**(-3), 
             sfp.get_tx_power(), 
             sfp.get_rx_power())
         )

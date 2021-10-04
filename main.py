@@ -1,82 +1,70 @@
-import smbus2
 from typing import List
 import time
+from enum import Enum
+
+import mysql.connector
+
 from modules.sfp import SFP
+from modules.sfp_i2c_bus import SFP_I2C_Bus, print_bus_dump
 
-class SFP_I2C_Bus:
+class TableNames(Enum):
+    ID = 0
+    PAGE_A0 = 1
+    PAGE_A2 = 2
 
-    # Raspberry Pi uses bus 1 for I2C
-    DEVICE_BUS = 1
+def _get_number_of_columns_in_table(cursor, table_name: str) -> int:
+    sql_statement = f"select count(*) as count from information_schema.columns where table_name\'{table_name}\'"
+    cursor.execute(sql_statement)
+    result = cursor.fetchone()
 
-    # Page 0xA0 of the SFP, stores identifier information
-    INFO_ADDR = 0x50
+    columns_in_table = result[0] - 1
 
-    # Page 0xA2 of the SFP for digital diagnostics monitoring (DDM)
-    # Would be 1010 0010, but we ignore the last bit since R/W
-    # So we get 101 0001, which is 0x51
-    DDM_ADDR = 0x51
+    return columns_in_table
 
-    def __init__(self):
-        self.bus = smbus2.SMBus(self.DEVICE_BUS)
+def insert_sfp_data_to_table(cursor, table_id: TableNames, values: List[int]) -> None:
 
+    def insert_to_id_table():
+        table_name = "sfp"
+        # gets number of columns in database
+        
+        columns_in_table = _get_number_of_columns_in_table(cursor, table_name)
 
-    def _dump(self, addr: int, max_addr: int) -> List[int]:
-        values = []
+        if len(values) != columns_in_table:
+            raise Exception("")
 
-        try:
-            for i in range(max_addr + 1):
-                read_value = self.bus.read_byte_data(addr, i)
-                values.append(read_value)
+        sql_statement = f"INSERT INTO {table_name} (vendor_id, vendor_part_number, transceiver_type) VALUES (%s, %s, %s)"
+        vals_to_insert = tuple(values)
+        cursor.execute(sql_statement, vals_to_insert)
 
-        except Exception as ex:
-            print("ERROR::SFP_I2C_BUS::_dump()")
-            print(ex)
-            values = [-1] * max_addr
+    def insert_to_a0_table():
+        table_name = "page_a0"
 
-            raise Exception("Remote I/O error communicating with SFP")
+        sql_statement = f'INSERT INTO {table_name} ('
+        for i in range(255):
+            sql_statement += f"`{i}`, "
+        sql_statement += '`255`) VALUES ('
+        for i in range(255):
+            sql_statement += "%s, "
+        sql_statement += "%s)"
 
-        return values
-
-    def dumpA0(self) -> List[int]:
-        return self._dump(self.INFO_ADDR, 0xFF)
-
-    def dumpA2(self) -> List[int]:
-        return self._dump(self.DDM_ADDR, 0xFF)
-
-
-    def end_communication(self):
-        self.bus.close()
-
-
-def print_bus_dump(bus_dump: List[int], ascii: bool) -> None:
-
-    # Print header
-    if ascii:
-        print(f'0123456789ABCDEF')
-    else:
-        print('{:>6}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}'.format('0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'))
-
-    for idx, num in enumerate(bus_dump):
-
-        if ascii:
-            if num >= 32 and num <= 126:
-                print(chr(num), end='')
-            else:
-                print('.', end='')
-        else:
-            if idx % 16 == 0:
-                print(format(idx, '02X') + ':', end=' ')
-
-            print(format(num, '02X'), end=' ')
-            
-
-        if (idx + 1) % 16 == 0:
-            print()
-
+        cursor.execute()
         
 
+    def insert_to_a2_table():
+        pass
 
-def main():
+    
+
+    if table_id is TableNames.ID:
+        insert_to_id_table()
+    elif table_id is TableNames.PAGE_A0:
+        insert_to_a0_table()
+    elif table_id is TableNames.PAGE_A2:
+        insert_to_a2_table()
+    else:
+        raise Exception("Unknown tablename")
+
+def main_for_pi():
     
     # Create an SFP_I2C bus object to interact with
     # the SFP connected to the experimenter board
@@ -129,6 +117,82 @@ def main():
             sfp_bus.end_communication()
             return
     
+
+def main():
+
+    my_udp_socket = MyUdpSocket()
+    my_tcp_socket = MySocket()
+
+    server_ip = None
+    server_port = None
+
+    while True:
+        
+        while my_udp_socket.state == MyUdpSocketState.UNDISCOVERED:
+            try:
+                raw_msg = my_udp_socket.myrecv()
+                code, data = struct.unpack('!H254s', raw_msg)
+                received_cmd = Message(code, str(data, 'utf-8').strip('\x00'))
+
+                if code == MessageCode.DISCOVER.value:
+                    print('Has been discovered by the server')
+
+                    msg = Message(MessageCode.CLOUDPLUG_DISCOVER_ACK.value, 'CLOUDPLUG DISCOVERED')
+                    print(f'Writing {msg.to_network_message()}')
+                    my_udp_socket.sock.sendto(msg.to_network_message(), (my_udp_socket.server_ip, my_udp_socket.server_port))
+                    my_udp_socket.state = MyUdpSocketState.DISCOVERED
+
+                    server_ip = my_udp_socket.server_ip
+                    server_port = my_udp_socket.server_port
+
+                    # Stop accepting broadcasts from the server once
+                    # it has been discovered. We don't want to process
+                    # thousands of backlogged discover requests
+                    # if we disconnect an hour into the application
+                    # running.
+                    my_udp_socket.sock.close()
+
+
+            except Exception as ex:
+                print(ex)
+
+            time.sleep(1)
+            print('Waiting for message...')
+        
+        # If we reach this point, the docking station has been discovered
+        # Attempt to initiate TCP connection with the server
+
+        try:
+            print(f'Attempting to connect to {server_ip}:{server_port}')
+            my_tcp_socket.connect(server_ip, server_port)
+            print(f'Connection successful!')
+        except Exception as ex:
+            # If there is an exception while connecting,
+            # change the state of the udp socket to
+            # undiscovered to allow reconnection
+            print(ex)
+            print('Connection error, reverting to undiscovered state')
+            my_udp_socket = MyUdpSocket()
+            my_udp_socket.state = MyUdpSocketState.UNDISCOVERED
+            continue
+
+        while my_tcp_socket.state == MyTcpSocketState.CONNECTED:
+            print('Awaiting TCP commands...')
+            
+            
+            test_data = 'This is a CloudPlug'
+            msg = Message(2411, test_data)
+
+            my_tcp_socket.mysend(msg.to_network_message())
+            time.sleep(2)
+
+        time.sleep(1)
+            
+
+
+    return
+
     
+
 if __name__ == '__main__':
     main()

@@ -2,9 +2,9 @@ from main import insert_sfp_data_to_table
 import struct
 import time
 
-from modules.non_qt_udp_client import MyUdpSocket, MyUdpSocketState
-from modules.non_qt_tcp_client import MySocket, MyTcpSocketState
-from modules.message import Message, MessageCode
+from modules.network.non_qt_udp_client import MyUdpSocket, MyUdpSocketState
+from modules.network.non_qt_tcp_client import MySocket, MyTcpSocketState
+from modules.network.message import Message, MessageCode
 
 import mysql.connector
 

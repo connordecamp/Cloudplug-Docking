@@ -1,11 +1,16 @@
 from typing import List
-import time
 from enum import Enum
+import struct
+import time
 
 import mysql.connector
 
-from modules.sfp import SFP
-from modules.sfp_i2c_bus import SFP_I2C_Bus, print_bus_dump
+from modules.core.sfp import SFP
+from modules.core.sfp_i2c_bus import SFP_I2C_Bus, print_bus_dump
+
+from modules.network.non_qt_udp_client import MyUdpSocket, MyUdpSocketState
+from modules.network.non_qt_tcp_client import MySocket, MyTcpSocketState
+from modules.network.message import Message, MessageCode
 
 class TableNames(Enum):
     ID = 0
@@ -64,7 +69,7 @@ def insert_sfp_data_to_table(cursor, table_id: TableNames, values: List[int]) ->
     else:
         raise Exception("Unknown tablename")
 
-def main_for_pi():
+def test_bus_dump():
     
     # Create an SFP_I2C bus object to interact with
     # the SFP connected to the experimenter board
@@ -126,6 +131,9 @@ def main():
     server_ip = None
     server_port = None
 
+    mydb = None
+    mycursor = None
+
     while True:
         
         while my_udp_socket.state == MyUdpSocketState.UNDISCOVERED:
@@ -137,7 +145,7 @@ def main():
                 if code == MessageCode.DISCOVER.value:
                     print('Has been discovered by the server')
 
-                    msg = Message(MessageCode.CLOUDPLUG_DISCOVER_ACK.value, 'CLOUDPLUG DISCOVERED')
+                    msg = Message(MessageCode.DOCK_DISCOVER_ACK.value, 'DOCKING STATION DISCOVERED')
                     print(f'Writing {msg.to_network_message()}')
                     my_udp_socket.sock.sendto(msg.to_network_message(), (my_udp_socket.server_ip, my_udp_socket.server_port))
                     my_udp_socket.state = MyUdpSocketState.DISCOVERED
@@ -151,6 +159,15 @@ def main():
                     # if we disconnect an hour into the application
                     # running.
                     my_udp_socket.sock.close()
+
+                    mydb = mysql.connector.connect(
+                        host=server_ip,
+                        user="connor",
+                        password="cloudplug!@#@!",
+                        database="sfp_info"
+                    )
+
+                    mycursor = mydb.cursor()                
 
 
             except Exception as ex:
@@ -177,14 +194,53 @@ def main():
             continue
 
         while my_tcp_socket.state == MyTcpSocketState.CONNECTED:
-            print('Awaiting TCP commands...')
-            
-            
-            test_data = 'This is a CloudPlug'
-            msg = Message(2411, test_data)
+                        
+            #test_data = 'This is a CloudPlug'
+            #msg = Message(2411, test_data)
+            #my_tcp_socket.mysend(msg.to_network_message())
 
-            my_tcp_socket.mysend(msg.to_network_message())
-            time.sleep(2)
+            print('Awaiting TCP commands...')
+            raw_msg = my_tcp_socket.myreceive()
+            code, data = struct.unpack('!H254s', raw_msg)
+            received_cmd = Message(code, str(data, 'utf-8').strip('\x00'))
+
+            print(received_cmd)
+
+            if MessageCode(code) == MessageCode.CLONE_SFP_MEMORY:
+                print('Trying to read SFP memory!!')
+                try:
+
+                    sfp_bus = SFP_I2C_Bus()
+
+                    a0_dump = sfp_bus.dumpA0()
+                    a2_dump = sfp_bus.dumpA2()
+
+                    print("Page 0xA0")
+                    print_bus_dump(a0_dump, False)
+                    print_bus_dump(a0_dump, True)
+                    print("\n\nPage 0xA2")
+                    print_bus_dump(a2_dump, False)
+                    print_bus_dump(a2_dump, True)
+                
+                except Exception as ex:
+                    print(ex)
+
+
+             # (pretend this is a command code)
+
+            '''
+            if MessageCode(msg) == READ_SFP_MEMORY:
+                a0_dump = sfp_bus.dumpA0()
+                a2_dump = sfp_bus.dumpA2()
+
+                insert_sfp_data_to_table(mycursor, "sfp", values)
+                mydb.commit()
+                insert_sfp_data_to_table(mycursor, "page_a0", values)
+                mydb.commit()
+                insert_sfp_data_to_table(mycursor, "page_a2", values)
+            '''
+
+            time.sleep(0.3)
 
         time.sleep(1)
             

@@ -15,7 +15,7 @@
 from dataclasses import dataclass
 from random import randint
 from typing import List
-from modules.convert import *
+from modules.core.convert import *
 from enum import Enum
 
 class SFP:

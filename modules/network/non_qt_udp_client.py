@@ -2,7 +2,7 @@ import socket
 import time
 from enum import Enum
 from ipaddress import IPv4Address, IPv4Network, ip_address
-from modules.message import Message, MessageCode
+from modules.network.message import Message, MessageCode
 import struct
 
 def determine_subnet_mask(ip: IPv4Address):

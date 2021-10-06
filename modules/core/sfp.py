@@ -1,13 +1,12 @@
 # Author:       Connor DeCamp
-# Created on:   7/15/2021
+# Created on:   07/15/2021
 #
-# History:      7/19/2021 - Added more getters for page a0
-#               7/20/2021 - Finished getters for page a0
-#               7/27/2021 - Started getters for page a2
-#               7/28/2021 - Continued work on getters for page a2
-#               7/29/2021 - Moved conversions to convert.py
-#               9/08/2021 - Fixed return values of slope/offset functions
-#                           based on internal/external calibration
+# History:      07/19/2021 - Added more getters for page a0
+#               07/20/2021 - Finished getters for page a0
+#               07/27/2021 - Started getters for page a2
+#               07/28/2021 - Continued work on getters for page a2
+#               07/29/2021 - Moved conversions to convert.py
+#               10/01/2021 - Fixed get_transceiver() method
 #
 # See SFF-8472 for tables that determine what each
 # value means in the memory map.
@@ -72,7 +71,10 @@ class SFP:
 
     # From Table 5-1 and Table 4-1 from SFF 8024
     def get_identifier(self) -> str:
-        
+        '''
+        Returns the type of transceiver the module has.
+        Uses byte 0 of page 0xA0.
+        '''
         # Use the id_code as an index into array
         # of strings for identifier type
         id_code = self.page_a0[0]
@@ -176,105 +178,111 @@ class SFP:
         elif (code >= 0x0E and code <= 0x1F) or (code >= 0x29 and code <= 0x7F):
             return "Reserved"
         elif code > 0x1F and code < 0x29:
-            #print(f'{code - 0x20 = }')
+            print(f'{code - 0x20 = }')
             return result2[code - 0x20]
         else:
             return "Vendor specific"
 
     # See comments in method
-    def get_transceiver(self) -> List[str]:
+    def get_transceiver_info(self) -> List[str]:
         """
         Returns the optical/electronic compatibility of the transceiver.
         """      
         # Starting at page 0xA0 byte 3, bytes 3-10 are used
         # to define the transceiver compliance
-    
+
+        # These arrays hold codes that represent the value for each
+        # bit that is set in the corresponding byte. For example,
+        # byte_three_codes[0] is the value we get when bit 0 of byte 3
+        # is set, so if we had 0b00000001 we would add '1X Copper Passive'
+        # to the transceiver type
         byte_three_codes = [
-            '10GBASE-ER',
-            '10GBASE-LRM',
-            '10GBASE-LR',
-            '10GBASE-SR',
-            '1X SX',
-            '1X LX',
+            '1X Copper Passive',
             '1X Copper Active',
-            '1X Copper Passive'
+            '1X LX',
+            '1X SX',
+            '10GBASE-SR',
+            '10GBASE-LR',
+            '10GBASE-LRM',
+            '10GBASE-ER'
         ]
 
         byte_four_codes = [
-            'ESCON MMF, 1310nm LED',
-            'ESCON SMF, 1310nm Laser',
-            'OC-192, short reach',
-            'SONET reach specifier bit 1',
-            'SONET reach specifier bit 2',
-            'OC-48 long reach',
+            'OC-48 short reach',
             'OC-48 intermediate reach',
-            'OC-48 short reach'
+            'OC-48 long reach',
+            'SONET reach specifier bit 2',
+            'SONET reach specifier bit 1',
+            'OC-192, short reach',
+            'ESCON SMF, 1310nm Laser',
+            'ESCON MMF, 1310nm LED'
         ]
 
-        byte_five_codes = [
-            'Reserved',
-            'OC-12, single mode, long reach',
-            'OC-12, single mode, intermediate reach',
-            'OC-12, short reach',
-            'Reserved',
-            'OC-3, single mode, long reach',
+        byte_five_codes = [ 
+            'OC-3, short reach',
             'OC-3, single mode, intermediate reach',
-            'OC-3, short reach'
-        ]
-
-        byte_six_codes = [
-            'BASE-PX',
-            'BASE_BX10',
-            '100BASE-FX',
-            '100BASE-LX/LX10',
-            '1000BASE-T',
-            '1000BASE-CX',
-            '1000BASE-LX',
-            '1000BASE-SX'
-        ]
-
-        byte_seven_codes = [
-            'very long distance (V)',
-            'short distance (S)',
-            'intermidate distance (I)',
-            'long distance (L)',
-            'medium distance (M)',
-            'Shortwave laser, linear Rx (SA)',
-            'Longwave laser (LC)',
-            'Electrical inter-enclosure (EL)'
-        ]
-
-        byte_eight_codes = [
-            'Electrical intra-enclosure (EL)',
-            'Shortwave laser w/o OFC (SN)',
-            'Shortwave laser with OFC (SL)',
-            'Longwave laser (LL)',
-            'Active Cable',
-            'Passive Cable',
+            'OC-3, single mode, long reach',
             'Reserved',
+            'OC-12, short reach',
+            'OC-12, single mode, intermediate reach',
+            'OC-12, single mode, long reach',
             'Reserved'
         ]
 
-        byte_nine_codes = [
-            'Twin Axial Pair (TW)',
-            'Twisted Pair (TP)',
-            'Miniature Coax (MI)',
-            'Video Coax (TV)',
-            'Multimode, 62.5um (M6)',
-            'Multimode, 50um (M5, M5E)',
+        byte_six_codes = [
+            '1000BASE-SX',
+            '1000BASE-LX',
+            '1000BASE-CX',
+            '1000BASE-T',
+            '100BASE-LX/LX10',
+            '100BASE-FX',
+            'BASE_BX10',
+            'BASE-PX',
+        ]
+
+        byte_seven_codes = [ 
+            'Electrical inter-enclosure (EL)',
+            'Longwave laser (LC)',
+            'Shortwave laser, linear Rx (SA)',
+            'medium distance (M)',
+            'long distance (L)',
+            'intermediate distance (I)',
+            'short distance (S)',
+            'very long distance (V)',
+        ]
+
+        byte_eight_codes = [
+            'Reserved'
             'Reserved',
+            'Passive Cable',
+            'Active Cable',
+            'Longwave laser (LL)',
+            'Shortwave laser with OFC (SL)',
+            'Shortwave laser w/o OFC (SN)',
+            'Electrical intra-enclosure (EL)',
+        ]
+
+
+        byte_nine_codes = [
             'Single Mode (SM)'
+            'Reserved',
+            'Multimode, 50um (M5, M5E)',
+            'Multimode, 62.5um (M6)',
+            'Video Coax (TV)',
+            'Miniature Coax (MI)',
+            'Twisted Pair (TP)',
+            'Twin Axial Pair (TW)',
         ]
 
         byte_ten_codes = [
-            '1200 MBytes/sec',
-            '800 MBytes/sec',
-            '1600 MBytes/sec',
-            '400 MBytes/sec',
-            '3200 MBytes/sec',
-            '200 MBytes/sec',
-            'See byte 62 "Fibre Channel Speed 2"',
             '100 MBytes/sec'
+            'See byte 62 "Fibre Channel Speed 2"',
+            '200 MBytes/sec',
+            '3200 MBytes/sec',
+            '400 MBytes/sec',
+            '1600 MBytes/sec',
+            '800 MBytes/sec',
+            '1200 MBytes/sec',
         ]
 
         code_dict = {}
@@ -293,15 +301,19 @@ class SFP:
         # Mask starts at bit 7 and checks down to bit
         # 0. If any are true (!= 0) then we append the
         # corresponding id to the compliance list
-        mask = 0b10000000
         
-
         for byte in range(3, 11):
-            for i in range(8):            
-                if self.page_a0[byte] & mask:
+            mask = 0b10000000
+
+            for i in range(7, -1, -1):            
+                
+                # If we take perform (byte AND mask) / mask, we will get either
+                # zero or one
+
+                if (self.page_a0[byte] & mask) // mask == 1:
                     compliant_with.append(code_dict[byte][i])
 
-            mask = mask // 2
+                mask = mask // 2
 
         return compliant_with
 
@@ -330,11 +342,11 @@ class SFP:
         else:
             return 'Reserved'
 
-    def get_signaling_rate_nominal(self) -> str:
+    def get_signaling_rate_nominal(self) -> int:
         '''
         Returns the nominal signaling rate in units of 100 MBaud.
         '''
-        return str(self.page_a0[12]) + ' * 100 MBaud'
+        return self.page_a0[12]
     
     def get_rate_identifier(self) -> str:
 
@@ -366,38 +378,38 @@ class SFP:
         elif code == 0x20:
             return 'Rate select based on PMDs as defined by 0xA0, byte 36 and 0xA2, byte 67'
 
-    def get_smf_link_length(self) -> str:
+    def get_smf_link_length(self) -> int:
         '''
-        Link lengh supported for single-mode fiber, units of
+        Link length supported for single-mode fiber, units of
         100m, or copper cable attenuation in dB at 25.78 GHz
         '''
-        return f'{self.page_a0[15]} * 10km'
+        return self.page_a0[15]
 
-    def get_om2_link_length(self) -> str:
+    def get_om2_link_length(self) -> int:
         '''
         Link length supported for 50um OM2 fiber
         '''
-        return f'{self.page_a0[16]} * 10m'
+        return self.page_a0[16]
 
-    def get_om1_link_length(self) -> str:
+    def get_om1_link_length(self) -> int:
         '''
         Link length supported for 62.5um OM1 fiber
         '''
-        return f'{self.page_a0[17]} * 10m'
+        return self.page_a0[17]
 
-    def get_om4_link_length(self) -> str:
+    def get_om4_link_length(self) -> int:
         '''
         Link length supported for 50um OM4 fiber in units of 10m,
-        or lengt of copper/direct attach cable in units of m.
+        or length of copper/direct attach cable in units of m.
         '''
-        return f'{self.page_a0[18]} * 10m'
+        return self.page_a0[18]
 
-    def get_om3_link_length(self) -> str:
+    def get_om3_link_length(self) -> int:
         '''
         Link length supported for 50um OM3 fiber, units of 10m.
         Alternatively, copper/direct attach cable multiplier and base value
         '''
-        return f'{self.page_a0[19]}'
+        return self.page_a0[19]
 
     def get_vendor_name(self) -> str:
         '''
@@ -510,30 +522,41 @@ class SFP:
         else:
             return "Reserved"
 
-    def get_vendor_oui(self) -> str:
+    def get_vendor_oui(self) -> List[int]:
         '''
         Get's the SFP vendor IEEE company ID
         '''
-        return f'{self.page_a0[37:39 + 1]}'
+        return self.page_a0[37:39 + 1]
     
     def get_vendor_part_number(self) -> str:
         '''
         Gets the part number provided by SFP vendor in ASCII.
         '''
-        return f'{self.page_a0[40:55 + 1]}'
+        part_number = ''
+
+        for val in self.page_a0[40:55 + 1]:
+            part_number += chr(val)
+
+        return part_number
 
     def get_vendor_revision_level(self) -> str:
         '''
         Gets the revision level for part number provided 
-        by vendor in ASCII.
+        by vendor in ASCII. Returns bytes [56,59]
         '''
-        return f'{self.page_a0[56:59 + 1]}'
+
+        rev_level = ''
+
+        for val in self.page_a0[56:59 + 1]:
+            rev_level += chr(val)
+
+        return rev_level
     
-    def get_wavelength(self) -> str:
+    def get_wavelength(self) -> int:
         '''
-        Gets the laser wavelength (Passive/Active Cable Specification Compliance)
+        Gets the laser wavelength (Passive/Active Cable Specification Compliance) in nm
         '''
-        return f'{self.page_a0[60:61 + 1]}'
+        return self.page_a0[60] << 8 | self.page_a0[61]
 
     def get_fibre_channel_speed2(self) -> str:
         return f'{self.page_a0[62]}'
@@ -992,21 +1015,21 @@ class SFP:
         '''
         return self._calibration_helper(48, 49)
     
-    def get_optional_tec_current_low_alarm(self) -> float:
+    def get_optional_tec_current_low_alarm(self) -> int:
         '''
         Gets the low alarm threshold for the optional TEC
         current. Uncalibrated.
         '''
         return self._calibration_helper(50, 51)
     
-    def get_optional_tec_current_high_warning(self) -> float:
+    def get_optional_tec_current_high_warning(self) -> int:
         '''
         Gets the high warning threshold for the optional TEC
         current. Uncalibrated.
         '''
         return self._calibration_helper(52, 53)
 
-    def get_optional_tec_current_low_warning(self) -> float:
+    def get_optional_tec_current_low_warning(self) -> int:
         '''
         Gets the low warning threshold for the optional TEC
         current. Uncalibrated.
@@ -1018,7 +1041,7 @@ class SFP:
     #   floating point numbers.
         
 
-    def _get_rx_pwr_4(self) -> float:
+    def _get_rx_pwr_4(self) -> int:
         '''
         Single precision floating point calibration data - Rx optical
         power. Bit 7 of byte 56 is MSB. Bit 0 of byte 59 is LSB. Rx_PWR(4)
@@ -1029,8 +1052,7 @@ class SFP:
             self.page_a2[58], self.page_a2[59]
         )
 
-
-    def _get_rx_pwr_3(self) -> float:
+    def _get_rx_pwr_3(self) -> int:
         '''
         Single precision floating point calibration data - Rx optical
         power. Bit 7 of byte 56 is MSB. Bit 0 of byte 59 is LSB. Rx_PWR(3)
@@ -1041,8 +1063,7 @@ class SFP:
             self.page_a2[62], self.page_a2[63]
         )
 
-
-    def _get_rx_pwr_2(self) -> float:
+    def _get_rx_pwr_2(self) -> int:
         '''
         Single precision floating point calibration data - Rx optical
         power. Bit 7 of byte 56 is MSB. Bit 0 of byte 59 is LSB. Rx_PWR(2)
@@ -1053,8 +1074,7 @@ class SFP:
             self.page_a2[66], self.page_a2[67]
         )
 
-
-    def _get_rx_pwr_1(self) -> float:
+    def _get_rx_pwr_1(self) -> int:
         '''
         Single precision floating point calibration data - Rx optical
         power. Bit 7 of byte 56 is MSB. Bit 0 of byte 59 is LSB. Rx_PWR(1)
@@ -1065,8 +1085,7 @@ class SFP:
             self.page_a2[70], self.page_a2[71]
         )
 
-
-    def _get_rx_pwr_0(self) -> float:
+    def _get_rx_pwr_0(self) -> int:
         '''
         Single precision floating point calibration data - Rx optical
         power. Bit 7 of byte 56 is MSB. Bit 0 of byte 59 is LSB. Rx_PWR(0)
@@ -1077,141 +1096,7 @@ class SFP:
             self.page_a2[74], self.page_a2[75]
         )
 
-
-
-    def get_tx_i_slope(self) -> int:
-        '''
-        Fixed decimal (unsigned) calibration data, laser bias current.
-        Bit 7 of byte 76 is MSB, bit 0 of byte 77 is LSB. Tx_I(slope)
-        should be set to 1 for 'internally calibrated' devices.
-        '''
-        if self.calibration_type == self.CalibrationType.EXTERNAL:
-            return bytes_to_unsigned_decimal(self.page_a2[76], self.page_a2[77])
-        else:
-            return 1.0
-
-    def get_tx_i_offset(self) -> int:
-        '''
-        Fixed decimal (signed two's complement) calibration data, laser bias
-        current. Bit 7 of byte 78 is MSB, bit 0 of byte 79 is LSB.
-        Tx_I(Offset) should be set to zero for "internally calibrated' devices.
-        '''
-        if self.calibration_type == self.CalibrationType.EXTERNAL:
-            return signed_twos_complement_to_int(self.page_a2[78], self.page_a2[79])
-        else:
-            return 0.0
-
-    def get_tx_pwr_slope(self) -> int:
-        '''
-        Fixed decimal (unsigned) calibration data, transmitter coupled
-        output power. Bit 7 of byte 80 is MSB, bit 0 of byte 81 is LSB. Tx_PWR(slope)
-        should be set to 1 for 'internally calibrated' devices.
-        '''
-        if self.calibration_type == self.CalibrationType.EXTERNAL:
-            return bytes_to_unsigned_decimal(self.page_a2[80], self.page_a2[81])
-        else:
-            return 0.0
-
-    def get_tx_pwr_offset(self) -> int:
-        '''
-        Fixed decimal (signed two's complement) calibration data, transmitter
-        coupled output power. Bit 7 of byte 82 is MSB, bit 0 of byte 83 is LSB.
-        Tx_PWR(Offset) should be set to zero for "internally calibrated" devices.
-        '''
-        if self.calibration_type == self.CalibrationType.EXTERNAL:
-            return signed_twos_complement_to_int(self.page_a2[82], self.page_a2[83])
-        else:
-            return 0.0
-    
-    def get_temp_slope(self) -> int:
-        '''
-        Fixed decimal (unsigned) calibration data, internal module temperature.
-        Bit 7 of byte 84 is MSB, bit 0 of byte 85 is LSB. T(Slope) should be set to
-        1 for "internally calibrated" devices.
-        '''
-        if self.calibration_type == self.CalibrationType.EXTERNAL:
-            return bytes_to_unsigned_decimal(self.page_a2[84], self.page_a2[85])
-        else:
-            return 1.0
-
-    def get_temp_offset(self) -> int:
-        '''
-        Fixed decimal (signed two's complement) calibration data, internal module temperature.
-        Bit 7 of byte 86 is MSB, bit 0 of byte 87 is LSB. T(Offset) should be set to
-        0 for "internally calibrated" devices.
-        '''
-        if self.calibration_type == self.CalibrationType.EXTERNAL:
-            return signed_twos_complement_to_int(self.page_a2[86], self.page_a2[87])
-        else:
-            return 0.0
-
-    def get_voltage_slope(self) -> int:
-        '''
-        Fixed decimal (unsigned) calibration data, internal module supply voltage.
-        Bit 7 of byte 88 is MSB, bit 0 of byte 89 is LSB. V(Slope) should be set to
-        1 for "internally calibrated" devices.
-        '''
-        if self.calibration_type == self.CalibrationType.EXTERNAL:
-            return bytes_to_unsigned_decimal(self.page_a2[88], self.page_a2[89])
-        else:
-            return 1.0
-
-    def get_voltage_offset(self) -> int:
-        '''
-        Fixed decimal (signed two's complement) calibration data, internal module temperature.
-        Bit 7 of byte 90 is MSB, bit 0 of byte 91 is LSB. V(Offset) should be set to
-        0 for "internally calibrated" devices.
-        '''
-        if self.calibration_type == self.CalibrationType.EXTERNAL:
-            return signed_twos_complement_to_int(self.page_a2[90], self.page_a2[91])
-        else:
-            return 0.0
-
-    def get_reserved_a2_bytes(self) -> int:
-        return f'{self.page_a2[92:94 + 1]}'
-
-    def get_pagea2_checksum(self) -> str:
-        return f'{hex(self.page_a2[95])}'
-
-    def calculate_pagea2_checksum(self) -> int:
-        '''
-        Returns the low order 8 bits of the sum of
-        bytes 0-94.
-        '''
-        return 0xFF & sum(self.page_a2[0:95])
-
-    def _real_time_measurement_helper(self, msb_addr: int, lsb_addr: int, measurement_slope: float, measurement_offset: float):
-        '''
-        Helper function to remove repeated code segments from calculating
-        the module voltage, tx bias current, tx power, and rx power.
-        It can NOT be used to calculate temperature. Use get_temperature() instead.
-        '''
-
-        msb = self.page_a2[msb_addr]
-        lsb = self.page_a2[lsb_addr]
-
-        unsigned_val = (msb << 8) | (0xFF * lsb)
-
-        return unsigned_val * measurement_slope + measurement_offset
-
-    def get_temperature(self) -> int:
-        msb = self.page_a2[96]
-        lsb = self.page_a2[97]
-
-        converted_val = bytes_to_unsigned_decimal(msb, lsb)
-
-        return converted_val * Decimal(self.get_temp_slope()) + Decimal(self.get_temp_offset())
-
-    def get_vcc(self) -> int:
-        return self._real_time_measurement_helper(98, 99, self.get_voltage_slope(), self.get_voltage_offset())
-
-    def get_tx_bias_current(self) -> int:
-        return self._real_time_measurement_helper(100, 101, self.get_tx_i_slope(), self.get_tx_i_offset())
-
-    def get_tx_power(self) -> int:
-        return self._real_time_measurement_helper(102, 103, self.get_tx_pwr_slope(), self.get_tx_pwr_offset())
-
-    def get_rx_power(self) -> float:
+    def calculate_rx_power_uw(self) -> int:
         '''
         Calculates the receiver optical power in uW. Formula for external
         calibration is:
@@ -1227,16 +1112,96 @@ class SFP:
 
         value = (msb << 8) | (lsb & 0xFF)
 
-        # print(self.get_diagnostic_monitoring_type())
+        print(self.get_diagnostic_monitoring_type())
 
         if self._calibration_type == self.CalibrationType.INTERNAL:
-            return self._get_rx_pwr_0()
+            return float(value)
         elif self._calibration_type == self.CalibrationType.EXTERNAL:
             return self._get_rx_pwr_4() * value + self._get_rx_pwr_3() * value + \
                    self._get_rx_pwr_2() * value + self._get_rx_pwr_2() * value + \
                    self._get_rx_pwr_1() * value + self._get_rx_pwr_0()
         else:
-            raise Exception("ERROR::SFP::get_rx_power() - Unknown calibration type")
+            print("ERROR::SFP::calculate_rx_power() - Unknown calibration type")
+            return -1
+
+
+
+    def get_tx_i_slope(self) -> int:
+        '''
+        Fixed decimal (unsigned) calibration data, laser bias current.
+        Bit 7 of byte 76 is MSB, bit 0 of byte 77 is LSB. Tx_I(slope)
+        should be set to 1 for 'internally calibrated' devices.
+        '''
+        return bytes_to_unsigned_decimal(self.page_a2[76], self.page_a2[77])
+
+    def get_tx_i_offset(self) -> int:
+        '''
+        Fixed decimal (signed two's complement) calibration data, laser bias
+        current. Bit 7 of byte 78 is MSB, bit 0 of byte 79 is LSB.
+        Tx_I(Offset) should be set to zero for "internally calibrated' devices.
+        '''
+        return signed_twos_complement_to_int(self.page_a2[78], self.page_a2[79])
+
+    def get_tx_pwr_slope(self) -> int:
+        '''
+        Fixed decimal (unsigned) calibration data, transmitter coupled
+        output power. Bit 7 of byte 80 is MSB, bit 0 of byte 81 is LSB. Tx_PWR(slope)
+        should be set to 1 for 'internally calibrated' devices.
+        '''
+        return bytes_to_unsigned_decimal(self.page_a2[80], self.page_a2[81])
+
+    def get_tx_pwr_offset(self) -> int:
+        '''
+        Fixed decimal (signed two's complement) calibration data, transmitter
+        coupled output power. Bit 7 of byte 82 is MSB, bit 0 of byte 83 is LSB.
+        Tx_PWR(Offset) should be set to zero for "internally calibrated" devices.
+        '''
+        return signed_twos_complement_to_int(self.page_a2[82], self.page_a2[83])
+    
+    def get_temp_slope(self) -> int:
+        '''
+        Fixed decimal (unsigned) calibration data, internal module temperature.
+        Bit 7 of byte 84 is MSB, bit 0 of byte 85 is LSB. T(Slope) should be set to
+        1 for "internally calibrated" devices.
+        '''
+        return bytes_to_unsigned_decimal(self.page_a2[84], self.page_a2[85])
+
+    def get_temp_offset(self) -> int:
+        '''
+        Fixed decimal (signed two's complement) calibration data, internal module temperature.
+        Bit 7 of byte 86 is MSB, bit 0 of byte 87 is LSB. T(Offset) should be set to
+        0 for "internally calibrated" devices.
+        '''
+        return signed_twos_complement_to_int(self.page_a2[86], self.page_a2[87])
+
+    def get_voltage_slope(self) -> int:
+        '''
+        Fixed decimal (unsigned) calibration data, internal module supply voltage.
+        Bit 7 of byte 88 is MSB, bit 0 of byte 89 is LSB. V(Slope) should be set to
+        1 for "internally calibrated" devices.
+        '''
+        return bytes_to_unsigned_decimal(self.page_a2[88], self.page_a2[89])
+
+    def get_voltage_offset(self) -> int:
+        '''
+        Fixed decimal (signed two's complement) calibration data, internal module temperature.
+        Bit 7 of byte 90 is MSB, bit 0 of byte 91 is LSB. V(Offset) should be set to
+        0 for "internally calibrated" devices.
+        '''
+        return signed_twos_complement_to_int(self.page_a2[90], self.page_a2[91])
+
+    def get_reserved_a2_bytes(self) -> int:
+        return f'{self.page_a2[92:94 + 1]}'
+
+    def get_pagea2_checksum(self) -> str:
+        return f'{hex(self.page_a2[95])}'
+
+    def calculate_pagea2_checksum(self) -> int:
+        '''
+        Returns the low order 8 bits of the sum of
+        bytes 0-94.
+        '''
+        return 0xFF & sum(self.page_a2[0:95])
 
 # Test function, can remove later
 def read_sfp_bin_file(filename: str) -> List[int]:
@@ -1260,7 +1225,6 @@ def read_sfp_bin_file(filename: str) -> List[int]:
 
 # Driver program to test functions
 if __name__ == '__main__':
-    '''
     sfp = SFP(read_sfp_bin_file('sfp2.bin'), [0] * 256, SFP.CalibrationType.UNKNOWN)
 
     print(f'{sfp.get_rate_identifier() = }')
@@ -1287,4 +1251,5 @@ if __name__ == '__main__':
     sfp.page_a2[76] = 0xff
     sfp.page_a2[77] = 0xff
     print(f'{sfp.get_tx_i_slope() = }')
-    '''
+
+    print(f'{sfp.calculate_rx_power_uw() = }')

@@ -10,64 +10,8 @@ from modules.core.sfp_i2c_bus import SFP_I2C_Bus, print_bus_dump
 
 from modules.network.non_qt_udp_client import MyUdpSocket, MyUdpSocketState
 from modules.network.non_qt_tcp_client import MySocket, MyTcpSocketState
-from modules.network.message import Message, MessageCode
-
-class TableNames(Enum):
-    ID = 0
-    PAGE_A0 = 1
-    PAGE_A2 = 2
-
-def _get_number_of_columns_in_table(cursor, table_name: str) -> int:
-    sql_statement = f"select count(*) as count from information_schema.columns where table_name\'{table_name}\'"
-    cursor.execute(sql_statement)
-    result = cursor.fetchone()
-
-    columns_in_table = result[0] - 1
-
-    return columns_in_table
-
-def insert_sfp_data_to_table(cursor, table_id: TableNames, values: List[int]) -> None:
-
-    def insert_to_id_table():
-        table_name = "sfp"
-        # gets number of columns in database
-        
-        columns_in_table = _get_number_of_columns_in_table(cursor, table_name)
-
-        if len(values) != columns_in_table:
-            raise Exception("")
-
-        sql_statement = f"INSERT INTO {table_name} (vendor_id, vendor_part_number, transceiver_type) VALUES (%s, %s, %s)"
-        vals_to_insert = tuple(values)
-        cursor.execute(sql_statement, vals_to_insert)
-
-    def insert_to_a0_table():
-        table_name = "page_a0"
-
-        sql_statement = f'INSERT INTO {table_name} ('
-        for i in range(255):
-            sql_statement += f"`{i}`, "
-        sql_statement += '`255`) VALUES ('
-        for i in range(255):
-            sql_statement += "%s, "
-        sql_statement += "%s)"
-
-        cursor.execute()
-        
-
-    def insert_to_a2_table():
-        pass
-
-    
-
-    if table_id is TableNames.ID:
-        insert_to_id_table()
-    elif table_id is TableNames.PAGE_A0:
-        insert_to_a0_table()
-    elif table_id is TableNames.PAGE_A2:
-        insert_to_a2_table()
-    else:
-        raise Exception("Unknown tablename")
+from modules.network.message import Message, MessageCode, unpackRawBytes
+from modules.network.db_utility import *
 
 def test_bus_dump():
     
@@ -139,13 +83,12 @@ def main():
         while my_udp_socket.state == MyUdpSocketState.UNDISCOVERED:
             try:
                 raw_msg = my_udp_socket.myrecv()
-                code, data = struct.unpack('!H254s', raw_msg)
-                received_cmd = Message(code, str(data, 'utf-8').strip('\x00'))
+                received_cmd: Message = unpackRawBytes(raw_msg)
 
-                if code == MessageCode.DISCOVER.value:
+                if received_cmd.code == MessageCode.DISCOVER:
                     print('Has been discovered by the server')
 
-                    msg = Message(MessageCode.DOCK_DISCOVER_ACK.value, 'DOCKING STATION DISCOVERED')
+                    msg = Message(MessageCode.DOCK_DISCOVER_ACK, 'DOCKING STATION DISCOVERED')
                     print(f'Writing {msg.to_network_message()}')
                     my_udp_socket.sock.sendto(msg.to_network_message(), (my_udp_socket.server_ip, my_udp_socket.server_port))
                     my_udp_socket.state = MyUdpSocketState.DISCOVERED
@@ -158,22 +101,13 @@ def main():
                     # thousands of backlogged discover requests
                     # if we disconnect an hour into the application
                     # running.
-                    my_udp_socket.sock.close()
-
-                    mydb = mysql.connector.connect(
-                        host=server_ip,
-                        user="connor",
-                        password="cloudplug!@#@!",
-                        database="sfp_info"
-                    )
-
-                    mycursor = mydb.cursor()                
+                    my_udp_socket.sock.close()       
 
 
             except Exception as ex:
                 print(ex)
 
-            time.sleep(1)
+            time.sleep(0.5)
             print('Waiting for message...')
         
         # If we reach this point, the docking station has been discovered
@@ -201,13 +135,12 @@ def main():
 
             print('Awaiting TCP commands...')
             raw_msg = my_tcp_socket.myreceive()
-            code, data = struct.unpack('!H254s', raw_msg)
-            received_cmd = Message(code, str(data, 'utf-8').strip('\x00'))
-
+            received_cmd: Message = unpackRawBytes(raw_msg)
+            
             print(received_cmd)
 
-            if MessageCode(code) == MessageCode.CLONE_SFP_MEMORY:
-                print('Trying to read SFP memory!!')
+            if received_cmd.code == MessageCode.CLONE_SFP_MEMORY:
+                print('Trying to read SFP memory!')
                 try:
 
                     sfp_bus = SFP_I2C_Bus()
@@ -221,24 +154,34 @@ def main():
                     print("\n\nPage 0xA2")
                     print_bus_dump(a2_dump, False)
                     print_bus_dump(a2_dump, True)
+                    
+                    try:
+                        mydb = mysql.connector.connect(
+                            host=server_ip,
+                            user="connor",
+                            password="cloudplug!@#@!",
+                            database="sfp_info",
+                            autocommit=True
+                        )
+
+                        mycursor = mydb.cursor()         
+                        insert_cloned_memory_to_database(mycursor, a0_dump, a2_dump)
+                        code = MessageCode.CLONE_SFP_MEMORY_SUCCESS
+                        data = "Successfully cloned SFP memory"
+                        msg = Message(code, data)
+
+                        my_tcp_socket.mysend(msg.to_network_message())
+
+                    except Exception as ex:
+                        print(ex)
                 
                 except Exception as ex:
+                    code = MessageCode.CLONE_SFP_MEMORY_ERROR
+                    data = "Error communicating with SFP"
+                    msg = Message(code, data)
+                    my_tcp_socket.mysend(msg.to_network_message())
                     print(ex)
 
-
-             # (pretend this is a command code)
-
-            '''
-            if MessageCode(msg) == READ_SFP_MEMORY:
-                a0_dump = sfp_bus.dumpA0()
-                a2_dump = sfp_bus.dumpA2()
-
-                insert_sfp_data_to_table(mycursor, "sfp", values)
-                mydb.commit()
-                insert_sfp_data_to_table(mycursor, "page_a0", values)
-                mydb.commit()
-                insert_sfp_data_to_table(mycursor, "page_a2", values)
-            '''
 
             time.sleep(0.3)
 

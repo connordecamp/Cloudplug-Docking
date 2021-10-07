@@ -1,5 +1,6 @@
 from typing import List
 import smbus2
+import time
 
 class SFP_I2C_Bus:
 
@@ -27,11 +28,14 @@ class SFP_I2C_Bus:
                 values.append(read_value)
 
         except Exception as ex:
-            print("ERROR::SFP_I2C_BUS::_dump()")
+            print(f"ERROR::SFP_I2C_BUS::_dump() trying to read from {hex(addr)}")
             print(ex)
             values = [-1] * max_addr
 
             raise Exception("Remote I/O error communicating with SFP")
+
+        #print(f"Received {len(values)} values from SFP")
+        #print(f"_dump() OK, got {values}")
 
         return values
 
@@ -41,6 +45,30 @@ class SFP_I2C_Bus:
     def dumpA2(self) -> List[int]:
         return self._dump(self.DDM_ADDR, 0xFF)
 
+    def read_param_registers(self) -> List[int]:
+        ''' 
+        Reads the parameter registers of the SFP.
+        addr 0xA2, registers 96->105 
+        '''
+
+        addr = [i for i in range(96, 105 + 1)]
+
+        return self.read_info_registers(addr)
+
+    def read_info_registers(self, registers: List[int]) -> List[int]:
+        '''
+        Returns a list of values read from the SFP given a list
+        of values indicating register number/location.
+        '''
+        vals = []
+
+        for reg in registers:
+            if reg < 0 or reg > 255:
+                raise Exception("Invalid register number. Valid register numbers are 0-255")
+            else:
+                vals.append(self.bus.read_byte_data(self.INFO_ADDR, reg))
+        
+        return vals
 
     def end_communication(self):
         self.bus.close()

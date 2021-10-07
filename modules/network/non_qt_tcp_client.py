@@ -29,7 +29,7 @@ class MySocket:
         self.sock.connect(host_port_tuple)
         self.state = MyTcpSocketState.CONNECTED
     
-    def mysend(self, msg):
+    def mysend(self, msg: bytes):
         totalsent = 0
 
         while totalsent < MSGLEN:

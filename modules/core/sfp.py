@@ -1112,7 +1112,7 @@ class SFP:
 
         value = (msb << 8) | (lsb & 0xFF)
 
-        print(self.get_diagnostic_monitoring_type())
+       # print(self.get_diagnostic_monitoring_type())
 
         if self._calibration_type == self.CalibrationType.INTERNAL:
             return float(value)
@@ -1126,7 +1126,7 @@ class SFP:
 
 
 
-    def get_tx_i_slope(self) -> int:
+    def get_tx_i_slope(self) -> float:
         '''
         Fixed decimal (unsigned) calibration data, laser bias current.
         Bit 7 of byte 76 is MSB, bit 0 of byte 77 is LSB. Tx_I(slope)
@@ -1134,7 +1134,7 @@ class SFP:
         '''
         return bytes_to_unsigned_decimal(self.page_a2[76], self.page_a2[77])
 
-    def get_tx_i_offset(self) -> int:
+    def get_tx_i_offset(self) -> float:
         '''
         Fixed decimal (signed two's complement) calibration data, laser bias
         current. Bit 7 of byte 78 is MSB, bit 0 of byte 79 is LSB.
@@ -1142,7 +1142,7 @@ class SFP:
         '''
         return signed_twos_complement_to_int(self.page_a2[78], self.page_a2[79])
 
-    def get_tx_pwr_slope(self) -> int:
+    def get_tx_pwr_slope(self) -> float:
         '''
         Fixed decimal (unsigned) calibration data, transmitter coupled
         output power. Bit 7 of byte 80 is MSB, bit 0 of byte 81 is LSB. Tx_PWR(slope)
@@ -1150,7 +1150,7 @@ class SFP:
         '''
         return bytes_to_unsigned_decimal(self.page_a2[80], self.page_a2[81])
 
-    def get_tx_pwr_offset(self) -> int:
+    def get_tx_pwr_offset(self) -> float:
         '''
         Fixed decimal (signed two's complement) calibration data, transmitter
         coupled output power. Bit 7 of byte 82 is MSB, bit 0 of byte 83 is LSB.
@@ -1158,7 +1158,7 @@ class SFP:
         '''
         return signed_twos_complement_to_int(self.page_a2[82], self.page_a2[83])
     
-    def get_temp_slope(self) -> int:
+    def get_temp_slope(self) -> float:
         '''
         Fixed decimal (unsigned) calibration data, internal module temperature.
         Bit 7 of byte 84 is MSB, bit 0 of byte 85 is LSB. T(Slope) should be set to
@@ -1166,7 +1166,7 @@ class SFP:
         '''
         return bytes_to_unsigned_decimal(self.page_a2[84], self.page_a2[85])
 
-    def get_temp_offset(self) -> int:
+    def get_temp_offset(self) -> float:
         '''
         Fixed decimal (signed two's complement) calibration data, internal module temperature.
         Bit 7 of byte 86 is MSB, bit 0 of byte 87 is LSB. T(Offset) should be set to
@@ -1174,7 +1174,7 @@ class SFP:
         '''
         return signed_twos_complement_to_int(self.page_a2[86], self.page_a2[87])
 
-    def get_voltage_slope(self) -> int:
+    def get_voltage_slope(self) -> float:
         '''
         Fixed decimal (unsigned) calibration data, internal module supply voltage.
         Bit 7 of byte 88 is MSB, bit 0 of byte 89 is LSB. V(Slope) should be set to
@@ -1182,7 +1182,7 @@ class SFP:
         '''
         return bytes_to_unsigned_decimal(self.page_a2[88], self.page_a2[89])
 
-    def get_voltage_offset(self) -> int:
+    def get_voltage_offset(self) -> float:
         '''
         Fixed decimal (signed two's complement) calibration data, internal module temperature.
         Bit 7 of byte 90 is MSB, bit 0 of byte 91 is LSB. V(Offset) should be set to
@@ -1196,12 +1196,72 @@ class SFP:
     def get_pagea2_checksum(self) -> str:
         return f'{hex(self.page_a2[95])}'
 
+    def _real_time_measurement_helper(self, msb_addr, lsb_addr, measurement_slope: float, measurement_offset: float) -> float:
+        msb = self.page_a2[msb_addr]
+        lsb = self.page_a2[lsb_addr]
+
+        unsigned_val = (msb << 8) | (lsb & 0xFF)
+
+        return measurement_slope * unsigned_val + measurement_offset
+
     def calculate_pagea2_checksum(self) -> int:
         '''
         Returns the low order 8 bits of the sum of
         bytes 0-94.
         '''
         return 0xFF & sum(self.page_a2[0:95])
+
+    def get_temperature(self) -> float:
+        '''
+        Returns the module temperature. Calibrated
+        16-bit data.
+        '''
+        
+        msb = self.page_a2[96]
+        lsb = self.page_a2[97]
+
+        converted_val = bytes_to_unsigned_decimal(msb, lsb)
+
+        return Decimal(self.get_temp_slope()) * Decimal(converted_val) + Decimal(self.get_temp_offset())
+
+    def get_vcc(self) -> float:
+        '''
+        Returns the measured supply voltage in transceiver.
+        '''
+
+        slope = self.get_voltage_slope()
+        offset = self.get_voltage_offset()
+
+        return self._real_time_measurement_helper(98, 99, slope, offset)
+
+    def get_tx_bias_current(self) -> float:
+        
+        slope = self.get_tx_i_slope()
+        offset = self.get_tx_i_offset()
+
+        return self._real_time_measurement_helper(100, 101, slope, offset)
+
+    def get_tx_power(self) -> float:
+        slope = self.get_tx_pwr_slope()
+        offset = self.get_tx_pwr_offset()
+
+        return self._real_time_measurement_helper(102, 103, slope, offset)
+
+    def get_rx_power(self):
+        msb = self.page_a2[104]
+        lsb = self.page_a2[105]
+
+        value = self._calibration_helper(msb, lsb)
+
+        if self._calibration_type == self.CalibrationType.INTERNAL:
+            return self.get_rx_pwr_0()
+        elif self._calibration_type == self.CalibrationType.EXTERNAL:
+            return self.get_rx_pwr_4() * value + self.get_rx_pwr_3() * value + \
+                   self.get_rx_pwr_2() * value + self.get_rx_pwr_1() * value + \
+                   self.get_rx_pwr_0()
+        else:
+            raise Exception("ERROR:SFP::get_rx_pwr() - Unknown calibration type")
+
 
 # Test function, can remove later
 def read_sfp_bin_file(filename: str) -> List[int]:

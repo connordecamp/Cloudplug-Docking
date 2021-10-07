@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import struct
 from enum import Enum
+from typing import List
 
 class MessageCode(Enum):
     DISCOVER = 0
@@ -11,6 +12,9 @@ class MessageCode(Enum):
     CLONE_SFP_MEMORY = 101
     CLONE_SFP_MEMORY_ERROR = 102
     CLONE_SFP_MEMORY_SUCCESS = 103
+    REQUEST_SFP_PARAMETERS = 104
+
+    REQUEST_SFP_PARAMETERS_ACK = 105
 
     # Cloudplug Codes
     CLOUDPLUG_DISCOVER_ACK = 200
@@ -19,10 +23,23 @@ class MessageCode(Enum):
 class Message:
     code: MessageCode
     data: str
-    
 
     def to_network_message(self) -> bytes:
         return struct.pack('!H254s', self.code.value, str.encode(self.data))
+
+class MeasurementMessage:
+    code: MessageCode
+    data: List[int]
+
+    def __init__(self, code=None, data=None):
+        self.code=code
+        self.data=data
+
+    def to_network_message(self) -> bytes:
+        return struct.pack('!H10B244s', self.code.value, *self.data, str.encode("0"))
+
+
+
 
 def unpackRawBytes(raw_msg: bytes) -> Message:
     code, data = struct.unpack('!H254s', raw_msg)
@@ -30,4 +47,12 @@ def unpackRawBytes(raw_msg: bytes) -> Message:
     sent_cmd = Message(code, str(data, 'utf-8').strip('\x00'))
 
     return sent_cmd
-    
+
+def unpackMeasurementMessageBytes(raw_msg: bytes) -> MeasurementMessage:
+    code, data = struct.unpack("!H10c244s", raw_msg)
+    code = MessageCode(code)
+    print(data)
+
+    sent_cmd = MeasurementMessage()
+
+    return sent_cmd

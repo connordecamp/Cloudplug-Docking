@@ -2,6 +2,7 @@ from typing import List
 from enum import Enum
 import struct
 import time
+from decimal import Decimal
 
 import mysql.connector
 
@@ -10,7 +11,7 @@ from modules.core.sfp_i2c_bus import SFP_I2C_Bus, print_bus_dump
 
 from modules.network.non_qt_udp_client import MyUdpSocket, MyUdpSocketState
 from modules.network.non_qt_tcp_client import MySocket, MyTcpSocketState
-from modules.network.message import Message, MessageCode, unpackRawBytes
+from modules.network.message import MeasurementMessage, Message, MessageCode, unpackRawBytes
 from modules.network.db_utility import *
 
 def test_bus_dump():
@@ -44,20 +45,20 @@ def test_bus_dump():
         
         try:
             # Format measurements nicely
-            print("{:<20.5f} {:<20.5f} {:<30.5f} {:<30.5f} {:<30.5f}".format(sfp.get_temperature(), 
-                sfp.get_vcc() * 10**(-4), 
-                sfp.get_tx_bias_current() * 2 * 10**(-3), 
+            print("{:<20.5f} {:<20.5f} {:<30.5f} {:<30.5f} {:<20.5f}".format(sfp.get_temperature(), 
+                sfp.get_vcc() * Decimal(10**(-4)), 
+                sfp.get_tx_bias_current() * Decimal(2 * 10**(-3)), 
                 sfp.get_tx_power(), 
-                sfp.get_rx_power())
+                sfp.calculate_rx_power_uw())
             )
 
             # re-read the entirety of diagnostics memory
             # should probably create a new function that ONLY
             # reads the few values we need
-            a2_dump = sfp_bus.dumpA2()
-            
-            # Update the page in the sfp object
-            sfp.page_a2 = a2_dump
+            i = 96
+            for register_val in sfp_bus.read_param_registers():
+                sfp.page_a2[i] = register_val
+                i += 1
 
             # Sleep for some time
             time.sleep(0.5)
@@ -77,6 +78,10 @@ def main():
 
     mydb = None
     mycursor = None
+
+    sfp_inserted = False
+
+    sfp_bus = SFP_I2C_Bus()
 
     while True:
         
@@ -142,18 +147,15 @@ def main():
             if received_cmd.code == MessageCode.CLONE_SFP_MEMORY:
                 print('Trying to read SFP memory!')
                 try:
-
-                    sfp_bus = SFP_I2C_Bus()
-
                     a0_dump = sfp_bus.dumpA0()
                     a2_dump = sfp_bus.dumpA2()
 
-                    print("Page 0xA0")
-                    print_bus_dump(a0_dump, False)
-                    print_bus_dump(a0_dump, True)
-                    print("\n\nPage 0xA2")
-                    print_bus_dump(a2_dump, False)
-                    print_bus_dump(a2_dump, True)
+                    #print("Page 0xA0")
+                    #print_bus_dump(a0_dump, False)
+                    #print_bus_dump(a0_dump, True)
+                    #print("\n\nPage 0xA2")
+                    #print_bus_dump(a2_dump, False)
+                    #print_bus_dump(a2_dump, True)
                     
                     try:
                         mydb = mysql.connector.connect(
@@ -181,6 +183,25 @@ def main():
                     msg = Message(code, data)
                     my_tcp_socket.mysend(msg.to_network_message())
                     print(ex)
+                finally:
+                    sfp_bus.close()
+            elif received_cmd.code == MessageCode.REQUEST_SFP_PARAMETERS:
+                # we want to read the data and send it back to control software
+
+                try:
+                    new_data = sfp_bus.read_param_registers()
+                    print(new_data)
+                    code = MessageCode.REQUEST_SFP_PARAMETERS_ACK
+
+                    msg = MeasurementMessage(code, new_data)
+
+                    my_tcp_socket.mysend(msg.to_network_message())
+                    
+
+                except Exception as ex:
+                    print("ERROR")
+                    print(ex)
+
 
 
             time.sleep(0.3)

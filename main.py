@@ -11,7 +11,7 @@ from modules.core.sfp_i2c_bus import SFP_I2C_Bus, print_bus_dump
 
 from modules.network.non_qt_udp_client import MyUdpSocket, MyUdpSocketState
 from modules.network.non_qt_tcp_client import MySocket, MyTcpSocketState
-from modules.network.message import MeasurementMessage, Message, MessageCode, unpackRawBytes
+from modules.network.message import MeasurementMessage, Message, MessageCode, ReadRegisterMessage, bytesToReadRegisterMessage, unpackMeasurementMessageBytes, unpackRawBytes
 from modules.network.db_utility import *
 
 def test_bus_dump():
@@ -140,9 +140,15 @@ def main():
 
             print('Awaiting TCP commands...')
             raw_msg = my_tcp_socket.myreceive()
-            received_cmd: Message = unpackRawBytes(raw_msg)
-            
-            print(received_cmd)
+            msg_code_int, *garbage = struct.unpack("!H254x", raw_msg)
+            code = MessageCode(msg_code_int)
+
+            register_read_cmds = [MessageCode.REAL_TIME_REFRESH, MessageCode.DIAGNOSTIC_INIT_A0, MessageCode.DIAGNOSTIC_INIT_A2]
+
+            if code in register_read_cmds:
+                received_cmd: ReadRegisterMessage = bytesToReadRegisterMessage(raw_msg)
+            else:
+                received_cmd: Message = unpackRawBytes(raw_msg)
 
             if received_cmd.code == MessageCode.CLONE_SFP_MEMORY:
                 print('Trying to read SFP memory!')
@@ -183,25 +189,27 @@ def main():
                     msg = Message(code, data)
                     my_tcp_socket.mysend(msg.to_network_message())
                     print(ex)
-                finally:
-                    sfp_bus.close()
-            elif received_cmd.code == MessageCode.REQUEST_SFP_PARAMETERS:
-                # we want to read the data and send it back to control software
+            elif received_cmd.code in register_read_cmds:
 
+                response_vals = []
                 try:
-                    new_data = sfp_bus.read_param_registers()
-                    print(new_data)
-                    code = MessageCode.REQUEST_SFP_PARAMETERS_ACK
-
-                    msg = MeasurementMessage(code, new_data)
-
-                    my_tcp_socket.mysend(msg.to_network_message())
                     
+                    response_vals = sfp_bus.read_registers_from_page(received_cmd.register_numbers, received_cmd.page_number)
 
+                    if received_cmd.code == MessageCode.REAL_TIME_REFRESH:
+                        msg_code = MessageCode.REAL_TIME_REFRESH_ACK
+                    elif received_cmd.code == MessageCode.DIAGNOSTIC_INIT_A0:
+                        msg_code = MessageCode.DIAGNOSTIC_INIT_A0_ACK
+                    elif received_cmd.code == MessageCode.DIAGNOSTIC_INIT_A2:
+                        msg_code = MessageCode.DIAGNOSTIC_INIT_A2_ACK
+
+                    msg_response = ReadRegisterMessage(msg_code, "", received_cmd.page_number, response_vals)
+                    my_tcp_socket.mysend(msg_response.to_network_message())
+                    
                 except Exception as ex:
-                    print("ERROR")
-                    print(ex)
-
+                        # Send I2C error code
+                    msg = Message(MessageCode.I2C_ERROR, "Remote I/O error when reading SFP")
+                    my_tcp_socket.mysend(msg.to_network_message())
 
 
             time.sleep(0.3)

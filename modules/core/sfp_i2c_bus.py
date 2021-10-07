@@ -1,4 +1,5 @@
 from typing import List
+from mysql.connector.utils import read_bytes
 import smbus2
 import time
 
@@ -54,6 +55,19 @@ class SFP_I2C_Bus:
         addr = [i for i in range(96, 105 + 1)]
 
         return self.read_info_registers(addr)
+
+    def read_registers_from_page(self, registers: List[int], page_num: int):
+
+        read_values = []
+
+        if page_num != 0x50 and page_num != 0x51:
+            raise ValueError("Page number not supported")
+        else:
+            for reg_num in registers:
+                read_val = self.bus.read_byte_data(page_num, reg_num)
+                read_values.append(read_val)
+
+        return read_values
 
     def read_info_registers(self, registers: List[int]) -> List[int]:
         '''

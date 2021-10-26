@@ -53,7 +53,7 @@ def insert_cloned_memory_to_database(cursor, page_a0_memory: List[int], page_a2_
     # their corresponding tables in the database
 
     insert_to_page_table(cursor, TableID.PAGE_A0, page_a0_memory)
-    # insert_to_page_table(cursor, TableID.PAGE_a2, page_a2_memory)
+    insert_to_page_table(cursor, TableID.PAGE_A2, page_a2_memory)
 
     
 

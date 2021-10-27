@@ -2,16 +2,16 @@ from main import insert_sfp_data_to_table
 import struct
 import time
 
-from modules.network.non_qt_udp_client import MyUdpSocket, MyUdpSocketState
-from modules.network.non_qt_tcp_client import MySocket, MyTcpSocketState
+from modules.network.non_qt_udp_client import UDPSocket, UDPSocketState
+from modules.network.non_qt_tcp_client import TCPSocket, TCPSocketState
 from modules.network.message import Message, MessageCode
 
 import mysql.connector
 
 def main():
 
-    my_udp_socket = MyUdpSocket()
-    my_tcp_socket = MySocket()
+    my_udp_socket = UDPSocket()
+    my_tcp_socket = TCPSocket()
 
     server_ip = None
     server_port = None
@@ -21,7 +21,7 @@ def main():
 
     while True:
         
-        while my_udp_socket.state == MyUdpSocketState.UNDISCOVERED:
+        while my_udp_socket.state == UDPSocketState.UNDISCOVERED:
             try:
                 raw_msg = my_udp_socket.myrecv()
                 code, data = struct.unpack('!H254s', raw_msg)
@@ -33,7 +33,7 @@ def main():
                     msg = Message(MessageCode.CLOUDPLUG_DISCOVER_ACK.value, 'CLOUDPLUG DISCOVERED')
                     print(f'Writing {msg.to_network_message()}')
                     my_udp_socket.sock.sendto(msg.to_network_message(), (my_udp_socket.server_ip, my_udp_socket.server_port))
-                    my_udp_socket.state = MyUdpSocketState.DISCOVERED
+                    my_udp_socket.state = UDPSocketState.DISCOVERED
 
                     server_ip = my_udp_socket.server_ip
                     server_port = my_udp_socket.server_port
@@ -74,11 +74,11 @@ def main():
             # undiscovered to allow reconnection
             print(ex)
             print('Connection error, reverting to undiscovered state')
-            my_udp_socket = MyUdpSocket()
-            my_udp_socket.state = MyUdpSocketState.UNDISCOVERED
+            my_udp_socket = UDPSocket()
+            my_udp_socket.state = UDPSocketState.UNDISCOVERED
             continue
 
-        while my_tcp_socket.state == MyTcpSocketState.CONNECTED:
+        while my_tcp_socket.state == TCPSocketState.CONNECTED:
             print('Awaiting TCP commands...')
             
             

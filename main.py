@@ -1,77 +1,23 @@
 from typing import List
-from enum import Enum
 import struct
 import time
-from decimal import Decimal
+import logging
 
 import mysql.connector
 
-from modules.core.sfp import SFP
-from modules.core.sfp_i2c_bus import SFP_I2C_Bus, print_bus_dump
+from modules.core.sfp_i2c_bus import SFP_I2C_Bus
 
-from modules.network.non_qt_udp_client import MyUdpSocket, MyUdpSocketState
-from modules.network.non_qt_tcp_client import MySocket, MyTcpSocketState
-from modules.network.message import MeasurementMessage, Message, MessageCode, ReadRegisterMessage, bytesToReadRegisterMessage, unpackMeasurementMessageBytes, unpackRawBytes
+from modules.network.non_qt_udp_client import UDPSocket, UDPSocketState
+from modules.network.non_qt_tcp_client import TCPSocket, TCPSocketState
+from modules.network.message import Message, MessageCode, ReadRegisterMessage, bytesToReadRegisterMessage, unpackMeasurementMessageBytes, unpackRawBytes
 from modules.network.db_utility import *
-
-def test_bus_dump():
     
-    # Create an SFP_I2C bus object to interact with
-    # the SFP connected to the experimenter board
-    sfp_bus = SFP_I2C_Bus()
 
-    a0_dump = sfp_bus.dumpA0()
-    a2_dump = sfp_bus.dumpA2()
-
-    print("Page 0xA0")
-    print_bus_dump(a0_dump, False)
-    print_bus_dump(a0_dump, True)
-    print("\n\nPage 0xA2")
-    print_bus_dump(a2_dump, False)
-    print_bus_dump(a2_dump, True)
-
-
-    # Create an sfp defined in modules/sfp,py
-    sfp = SFP(a0_dump, a2_dump)
-
-    # just debug, print diagnostic monitoring type
-    print(sfp.get_diagnostic_monitoring_type())
-
-    
-    print("{:<20} {:<20} {:<30} {:<30} {:<30}".format("Temperature (C)", "Voltage (V)", "TX Bias Current (mA)", "TX Power (0.1 uW)", "RX Power (0.1 uW)"))
-    # print(sfp.get_voltage_slope())
-    #print(sfp.get_voltage_offset())
-    while True:
-        
-        try:
-            # Format measurements nicely
-            print("{:<20.5f} {:<20.5f} {:<30.5f} {:<30.5f} {:<20.5f}".format(sfp.get_temperature(), 
-                sfp.get_vcc() * Decimal(10**(-4)), 
-                sfp.get_tx_bias_current() * Decimal(2 * 10**(-3)), 
-                sfp.get_tx_power(), 
-                sfp.calculate_rx_power_uw())
-            )
-
-            # re-read the entirety of diagnostics memory
-            # should probably create a new function that ONLY
-            # reads the few values we need
-            i = 96
-            for register_val in sfp_bus.read_param_registers():
-                sfp.page_a2[i] = register_val
-                i += 1
-
-            # Sleep for some time
-            time.sleep(0.5)
-        except KeyboardInterrupt as ex:
-            print("\nKeyboard Interrupt, closing bus communication and exiting...")
-            sfp_bus.end_communication()
-            return
-    
 
 def main():
 
-    my_udp_socket = MyUdpSocket()
-    my_tcp_socket = MySocket()
+    my_udp_socket = None
+    my_tcp_socket = None
 
     server_ip = None
     server_port = None
@@ -79,24 +25,31 @@ def main():
     mydb = None
     mycursor = None
 
-    sfp_inserted = False
-
     sfp_bus = SFP_I2C_Bus()
 
+    log_fmt = "[%(asctime)s | %(levelname)s]: %(message)s"
+    logging.basicConfig(level=logging.DEBUG, format=log_fmt, datefmt="%I:%M:%S")
+    logging.debug("Application started")
+
     while True:
+
+        if not my_udp_socket:
+            logging.debug("Creating UDP Socket")
+            my_udp_socket = UDPSocket()
+
         
-        while my_udp_socket.state == MyUdpSocketState.UNDISCOVERED:
+        while my_udp_socket.state == UDPSocketState.UNDISCOVERED:
             try:
                 raw_msg = my_udp_socket.myrecv()
                 received_cmd: Message = unpackRawBytes(raw_msg)
 
                 if received_cmd.code == MessageCode.DISCOVER:
-                    print('Has been discovered by the server')
+                    logging.debug('Has been discovered by the server')
 
                     msg = Message(MessageCode.DOCK_DISCOVER_ACK, 'DOCKING STATION DISCOVERED')
-                    print(f'Writing {msg.to_network_message()}')
+                    #logging.debug(f'Writing {msg.to_network_message()}')
                     my_udp_socket.sock.sendto(msg.to_network_message(), (my_udp_socket.server_ip, my_udp_socket.server_port))
-                    my_udp_socket.state = MyUdpSocketState.DISCOVERED
+                    my_udp_socket.state = UDPSocketState.DISCOVERED
 
                     server_ip = my_udp_socket.server_ip
                     server_port = my_udp_socket.server_port
@@ -106,40 +59,50 @@ def main():
                     # thousands of backlogged discover requests
                     # if we disconnect an hour into the application
                     # running.
-                    my_udp_socket.sock.close()       
+                    my_udp_socket.sock.close()
 
 
             except Exception as ex:
-                print(ex)
+                logging.debug(ex)
 
-            time.sleep(0.5)
-            print('Waiting for message...')
+            time.sleep(1)
+            logging.debug('Waiting for message...')
         
         # If we reach this point, the docking station has been discovered
         # Attempt to initiate TCP connection with the server
 
+        if not my_tcp_socket:
+            logging.debug("Creating TCP socket")
+            my_tcp_socket = TCPSocket()
+
         try:
-            print(f'Attempting to connect to {server_ip}:{server_port}')
+            logging.debug(f'Attempting to connect to {server_ip}:{server_port}')
             my_tcp_socket.connect(server_ip, server_port)
-            print(f'Connection successful!')
+            logging.debug(f'Connection successful!')
+            my_udp_socket = None
         except Exception as ex:
             # If there is an exception while connecting,
             # change the state of the udp socket to
             # undiscovered to allow reconnection
-            print(ex)
-            print('Connection error, reverting to undiscovered state')
-            my_udp_socket = MyUdpSocket()
-            my_udp_socket.state = MyUdpSocketState.UNDISCOVERED
-            continue
+            logging.debug(ex)
+            logging.debug('Connection error, reverting to undiscovered state')
+            my_udp_socket = None
+            break
 
-        while my_tcp_socket.state == MyTcpSocketState.CONNECTED:
+        while my_tcp_socket.state == TCPSocketState.CONNECTED:
                         
             #test_data = 'This is a CloudPlug'
             #msg = Message(2411, test_data)
             #my_tcp_socket.mysend(msg.to_network_message())
 
-            print('Awaiting TCP commands...')
-            raw_msg = my_tcp_socket.myreceive()
+            logging.debug('Awaiting TCP commands...')
+            try:
+                raw_msg = my_tcp_socket.myreceive()
+            except RuntimeError as ex:
+                my_tcp_socket.handle_server_disconnect()
+                my_tcp_socket = None
+                break
+
             msg_code_int, *garbage = struct.unpack("!H254x", raw_msg)
             code = MessageCode(msg_code_int)
 
@@ -151,15 +114,15 @@ def main():
                 received_cmd: Message = unpackRawBytes(raw_msg)
 
             if received_cmd.code == MessageCode.CLONE_SFP_MEMORY:
-                print('Trying to read SFP memory!')
+                logging.debug('Trying to read SFP memory!')
                 try:
                     a0_dump = sfp_bus.dumpA0()
                     a2_dump = sfp_bus.dumpA2()
 
-                    #print("Page 0xA0")
+                    #logging.debug("Page 0xA0")
                     #print_bus_dump(a0_dump, False)
                     #print_bus_dump(a0_dump, True)
-                    #print("\n\nPage 0xA2")
+                    #logging.debug("\n\nPage 0xA2")
                     #print_bus_dump(a2_dump, False)
                     #print_bus_dump(a2_dump, True)
                     
@@ -181,14 +144,14 @@ def main():
                         my_tcp_socket.mysend(msg.to_network_message())
 
                     except Exception as ex:
-                        print(ex)
+                        logging.debug(ex)
                 
                 except Exception as ex:
                     code = MessageCode.CLONE_SFP_MEMORY_ERROR
                     data = "Error communicating with SFP"
                     msg = Message(code, data)
                     my_tcp_socket.mysend(msg.to_network_message())
-                    print(ex)
+                    logging.debug(ex)
             elif received_cmd.code in register_read_cmds:
 
                 response_vals = []

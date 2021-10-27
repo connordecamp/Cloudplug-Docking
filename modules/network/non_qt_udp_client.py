@@ -39,13 +39,13 @@ def get_local_ip():
 
     return IP
 
-class MyUdpSocketState(Enum):
+class UDPSocketState(Enum):
     UNDISCOVERED = 0
     DISCOVERED = 1
 
 
-class MyUdpSocket():
-    state : MyUdpSocketState
+class UDPSocket():
+    state : UDPSocketState
 
     def __init__(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -53,7 +53,7 @@ class MyUdpSocket():
         # Listen to ALL network interfaces for broadcasted
         # message from control software
         self.sock.bind(('', 20100))
-        self.state = MyUdpSocketState.UNDISCOVERED
+        self.state = UDPSocketState.UNDISCOVERED
 
     def mysend(self, server_ip: str, port: int):
         pass
@@ -88,11 +88,11 @@ class MyUdpSocket():
 
 def main():
 
-    my_socket = MyUdpSocket()
+    my_socket = UDPSocket()
 
     while True:
         
-        while my_socket.state == MyUdpSocketState.UNDISCOVERED:
+        while my_socket.state == UDPSocketState.UNDISCOVERED:
             try:
                 raw_msg = my_socket.myrecv()
                 code, data = struct.unpack('=H254s', raw_msg)
@@ -104,7 +104,7 @@ def main():
                     msg = Message(MessageCode.DOCK_DISCOVER_ACK.value, 'DOCK DISCOVERED')
                     print(f'Writing {msg.to_network_message()}')
                     my_socket.sock.sendto(msg.to_network_message(), (my_socket.server_ip, my_socket.server_port))
-                    my_socket.state = MyUdpSocketState.DISCOVERED
+                    my_socket.state = UDPSocketState.DISCOVERED
                 else:
                     print('Unknown message format received')
 

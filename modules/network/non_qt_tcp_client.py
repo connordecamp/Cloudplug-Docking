@@ -7,27 +7,28 @@
 
 import socket
 import time
+import logging
 from enum import Enum
 
 MSGLEN = 256
 
-class MyTcpSocketState(Enum):
+class TCPSocketState(Enum):
     DISCONNECTED = 0
     CONNECTED = 1
 
-class MySocket:
+class TCPSocket:
     def __init__(self, sock=None):
         if sock is None:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         else:
             self.sock = sock
 
-        self.state: MyTcpSocketState = MyTcpSocketState.DISCONNECTED
+        self.state: TCPSocketState = TCPSocketState.DISCONNECTED
 
     def connect(self, host, port):
         host_port_tuple = (host, port)
         self.sock.connect(host_port_tuple)
-        self.state = MyTcpSocketState.CONNECTED
+        self.state = TCPSocketState.CONNECTED
     
     def mysend(self, msg: bytes):
         totalsent = 0
@@ -55,17 +56,16 @@ class MySocket:
         # socket object and close the current socket.
         # Re-create it and let the driver code attempt
         # to reconnect
-        print('Lost connection to server...')
-        self.state = MyTcpSocketState.DISCONNECTED
+        logging.debug('Lost connection to server...')
+        self.state = TCPSocketState.DISCONNECTED
         self.sock.close()
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 def main():
-    s = MySocket()
+    s = TCPSocket()
 
     while True:
         print(f'Above disconnected loop, {s.state = }')
-        while s.state == MyTcpSocketState.DISCONNECTED:
+        while s.state == TCPSocketState.DISCONNECTED:
             try:
                 s.connect('127.0.0.1', 20100)
 
@@ -75,7 +75,7 @@ def main():
             time.sleep(1)
 
         print(f'Above connected loop, {s.state = }')
-        while s.state == MyTcpSocketState.CONNECTED:
+        while s.state == TCPSocketState.CONNECTED:
             
             msg = "NON_QT_TEST"
             try:

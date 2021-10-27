@@ -6,6 +6,8 @@ from typing import List
 class MessageCode(Enum):
     DISCOVER = 0
 
+    IDENTIFY_DEVICE = 20
+
     # Docking Station Codes
     DOCK_DISCOVER_ACK           = 100
     CLONE_SFP_MEMORY            = 101

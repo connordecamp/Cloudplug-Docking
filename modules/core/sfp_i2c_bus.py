@@ -1,7 +1,5 @@
 from typing import List
-from mysql.connector.utils import read_bytes
 import smbus2
-import time
 
 class SFP_I2C_Bus:
 
@@ -24,8 +22,11 @@ class SFP_I2C_Bus:
         values = []
 
         try:
-            for i in range(max_addr + 1):
-                read_value = self.bus.read_byte_data(addr, i)
+            read_value = self.bus.read_byte_data(addr, 0)
+            values.append(read_value)
+
+            for i in range(1, max_addr + 1):
+                read_value = self.bus.read_byte(addr)
                 values.append(read_value)
 
         except Exception as ex:

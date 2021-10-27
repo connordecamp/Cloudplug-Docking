@@ -48,11 +48,12 @@ def main():
 
                     msg = Message(MessageCode.DOCK_DISCOVER_ACK, 'DOCKING STATION DISCOVERED')
                     #logging.debug(f'Writing {msg.to_network_message()}')
-                    my_udp_socket.sock.sendto(msg.to_network_message(), (my_udp_socket.server_ip, my_udp_socket.server_port))
-                    my_udp_socket.state = UDPSocketState.DISCOVERED
+                    #my_udp_socket.sock.sendto(msg.to_network_message(), (my_udp_socket.server_ip, my_udp_socket.server_port))
+                    #my_udp_socket.state = UDPSocketState.DISCOVERED
 
                     server_ip = my_udp_socket.server_ip
                     server_port = my_udp_socket.server_port
+                    my_udp_socket.state = UDPSocketState.DISCOVERED
 
                     # Stop accepting broadcasts from the server once
                     # it has been discovered. We don't want to process
@@ -65,7 +66,7 @@ def main():
             except Exception as ex:
                 logging.debug(ex)
 
-            time.sleep(1)
+            time.sleep(0.2)
             logging.debug('Waiting for message...')
         
         # If we reach this point, the docking station has been discovered
@@ -98,87 +99,94 @@ def main():
             logging.debug('Awaiting TCP commands...')
             try:
                 raw_msg = my_tcp_socket.myreceive()
+                
+
+                msg_code_int, *garbage = struct.unpack("!H254x", raw_msg)
+                code = MessageCode(msg_code_int)
+
+                register_read_cmds = [MessageCode.REAL_TIME_REFRESH, MessageCode.DIAGNOSTIC_INIT_A0, MessageCode.DIAGNOSTIC_INIT_A2]
+
+                if code in register_read_cmds:
+                    received_cmd: ReadRegisterMessage = bytesToReadRegisterMessage(raw_msg)
+                else:
+                    received_cmd: Message = unpackRawBytes(raw_msg)
+
+                if received_cmd.code == MessageCode.IDENTIFY_DEVICE:
+                    logging.debug("Responding to identification request")
+                    msg = Message(MessageCode.DOCK_DISCOVER_ACK, "Docking Station")
+                    my_tcp_socket.mysend(msg.to_network_message())
+                if received_cmd.code == MessageCode.CLONE_SFP_MEMORY:
+                    logging.debug('Trying to read SFP memory!')
+                    try:
+                        a0_dump = sfp_bus.dumpA0()
+                        a2_dump = sfp_bus.dumpA2()
+
+                        #logging.debug("Page 0xA0")
+                        #print_bus_dump(a0_dump, False)
+                        #print_bus_dump(a0_dump, True)
+                        #logging.debug("\n\nPage 0xA2")
+                        #print_bus_dump(a2_dump, False)
+                        #print_bus_dump(a2_dump, True)
+                        
+                        try:
+                            mydb = mysql.connector.connect(
+                                host=server_ip,
+                                user="connor",
+                                password="cloudplug!@#@!",
+                                database="sfp_info",
+                                autocommit=True
+                            )
+
+                            mycursor = mydb.cursor()         
+                            insert_cloned_memory_to_database(mycursor, a0_dump, a2_dump)
+                            code = MessageCode.CLONE_SFP_MEMORY_SUCCESS
+                            data = "Successfully cloned SFP memory"
+                            msg = Message(code, data)
+
+                            my_tcp_socket.mysend(msg.to_network_message())
+
+                        except Exception as ex:
+                            logging.debug(ex)
+                    
+                    except Exception as ex:
+                        code = MessageCode.CLONE_SFP_MEMORY_ERROR
+                        data = "Error communicating with SFP"
+                        msg = Message(code, data)
+                        my_tcp_socket.mysend(msg.to_network_message())
+                        logging.debug(ex)
+                elif received_cmd.code in register_read_cmds:
+
+                    response_vals = []
+                    try:
+                        
+                        response_vals = sfp_bus.read_registers_from_page(received_cmd.register_numbers, received_cmd.page_number)
+
+                        if received_cmd.code == MessageCode.REAL_TIME_REFRESH:
+                            msg_code = MessageCode.REAL_TIME_REFRESH_ACK
+                        elif received_cmd.code == MessageCode.DIAGNOSTIC_INIT_A0:
+                            msg_code = MessageCode.DIAGNOSTIC_INIT_A0_ACK
+                        elif received_cmd.code == MessageCode.DIAGNOSTIC_INIT_A2:
+                            msg_code = MessageCode.DIAGNOSTIC_INIT_A2_ACK
+
+                        msg_response = ReadRegisterMessage(msg_code, "", received_cmd.page_number, response_vals)
+                        my_tcp_socket.mysend(msg_response.to_network_message())
+                        
+                    except Exception as ex:
+                            # Send I2C error code
+                        msg = Message(MessageCode.I2C_ERROR, "Remote I/O error when reading SFP")
+                        my_tcp_socket.mysend(msg.to_network_message())
+
+
+                #time.sleep(0.3)
+
             except RuntimeError as ex:
                 my_tcp_socket.handle_server_disconnect()
                 my_tcp_socket = None
                 break
-
-            msg_code_int, *garbage = struct.unpack("!H254x", raw_msg)
-            code = MessageCode(msg_code_int)
-
-            register_read_cmds = [MessageCode.REAL_TIME_REFRESH, MessageCode.DIAGNOSTIC_INIT_A0, MessageCode.DIAGNOSTIC_INIT_A2]
-
-            if code in register_read_cmds:
-                received_cmd: ReadRegisterMessage = bytesToReadRegisterMessage(raw_msg)
-            else:
-                received_cmd: Message = unpackRawBytes(raw_msg)
-
-            if received_cmd.code == MessageCode.CLONE_SFP_MEMORY:
-                logging.debug('Trying to read SFP memory!')
-                try:
-                    a0_dump = sfp_bus.dumpA0()
-                    a2_dump = sfp_bus.dumpA2()
-
-                    #logging.debug("Page 0xA0")
-                    #print_bus_dump(a0_dump, False)
-                    #print_bus_dump(a0_dump, True)
-                    #logging.debug("\n\nPage 0xA2")
-                    #print_bus_dump(a2_dump, False)
-                    #print_bus_dump(a2_dump, True)
-                    
-                    try:
-                        mydb = mysql.connector.connect(
-                            host=server_ip,
-                            user="connor",
-                            password="cloudplug!@#@!",
-                            database="sfp_info",
-                            autocommit=True
-                        )
-
-                        mycursor = mydb.cursor()         
-                        insert_cloned_memory_to_database(mycursor, a0_dump, a2_dump)
-                        code = MessageCode.CLONE_SFP_MEMORY_SUCCESS
-                        data = "Successfully cloned SFP memory"
-                        msg = Message(code, data)
-
-                        my_tcp_socket.mysend(msg.to_network_message())
-
-                    except Exception as ex:
-                        logging.debug(ex)
-                
-                except Exception as ex:
-                    code = MessageCode.CLONE_SFP_MEMORY_ERROR
-                    data = "Error communicating with SFP"
-                    msg = Message(code, data)
-                    my_tcp_socket.mysend(msg.to_network_message())
-                    logging.debug(ex)
-            elif received_cmd.code in register_read_cmds:
-
-                response_vals = []
-                try:
-                    
-                    response_vals = sfp_bus.read_registers_from_page(received_cmd.register_numbers, received_cmd.page_number)
-
-                    if received_cmd.code == MessageCode.REAL_TIME_REFRESH:
-                        msg_code = MessageCode.REAL_TIME_REFRESH_ACK
-                    elif received_cmd.code == MessageCode.DIAGNOSTIC_INIT_A0:
-                        msg_code = MessageCode.DIAGNOSTIC_INIT_A0_ACK
-                    elif received_cmd.code == MessageCode.DIAGNOSTIC_INIT_A2:
-                        msg_code = MessageCode.DIAGNOSTIC_INIT_A2_ACK
-
-                    msg_response = ReadRegisterMessage(msg_code, "", received_cmd.page_number, response_vals)
-                    my_tcp_socket.mysend(msg_response.to_network_message())
-                    
-                except Exception as ex:
-                        # Send I2C error code
-                    msg = Message(MessageCode.I2C_ERROR, "Remote I/O error when reading SFP")
-                    my_tcp_socket.mysend(msg.to_network_message())
-
-
-            time.sleep(0.3)
-
-        time.sleep(1)
             
+            #time.sleep(1)
+        
+                
 
 
     return

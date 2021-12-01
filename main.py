@@ -1,134 +1,189 @@
-import smbus2
 from typing import List
+import struct
 import time
-from modules.sfp import SFP
+import logging
 
-class SFP_I2C_Bus:
+import mysql.connector
 
-    # Raspberry Pi uses bus 1 for I2C
-    DEVICE_BUS = 1
+from modules.core.sfp_i2c_bus import SFP_I2C_Bus
 
-    # Page 0xA0 of the SFP, stores identifier information
-    INFO_ADDR = 0x50
-
-    # Page 0xA2 of the SFP for digital diagnostics monitoring (DDM)
-    # Would be 1010 0010, but we ignore the last bit since R/W
-    # So we get 101 0001, which is 0x51
-    DDM_ADDR = 0x51
-
-    def __init__(self):
-        self.bus = smbus2.SMBus(self.DEVICE_BUS)
-
-
-    def _dump(self, addr: int, max_addr: int) -> List[int]:
-        values = []
-
-        try:
-            for i in range(max_addr + 1):
-                read_value = self.bus.read_byte_data(addr, i)
-                values.append(read_value)
-
-        except Exception as ex:
-            print("ERROR::SFP_I2C_BUS::_dump()")
-            print(ex)
-            values = [-1] * max_addr
-
-            raise Exception("Remote I/O error communicating with SFP")
-
-        return values
-
-    def dumpA0(self) -> List[int]:
-        return self._dump(self.INFO_ADDR, 0xFF)
-
-    def dumpA2(self) -> List[int]:
-        return self._dump(self.DDM_ADDR, 0xFF)
-
-
-    def end_communication(self):
-        self.bus.close()
-
-
-def print_bus_dump(bus_dump: List[int], ascii: bool) -> None:
-
-    # Print header
-    if ascii:
-        print(f'0123456789ABCDEF')
-    else:
-        print('{:>6}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}{:>3}'.format('0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'))
-
-    for idx, num in enumerate(bus_dump):
-
-        if ascii:
-            if num >= 32 and num <= 126:
-                print(chr(num), end='')
-            else:
-                print('.', end='')
-        else:
-            if idx % 16 == 0:
-                print(format(idx, '02X') + ':', end=' ')
-
-            print(format(num, '02X'), end=' ')
-            
-
-        if (idx + 1) % 16 == 0:
-            print()
-
-        
+from modules.network.non_qt_udp_client import UDPSocket, UDPSocketState
+from modules.network.non_qt_tcp_client import TCPSocket, TCPSocketState
+from modules.network.message import Message, MessageCode, ReadRegisterMessage, bytesToReadRegisterMessage, unpackMeasurementMessageBytes, unpackRawBytes
+from modules.network.db_utility import *
+    
 
 
 def main():
-    
-    # Create an SFP_I2C bus object to interact with
-    # the SFP connected to the experimenter board
+
+    my_udp_socket = None
+    my_tcp_socket = None
+
+    server_ip = None
+    server_port = None
+
+    mydb = None
+    mycursor = None
+
     sfp_bus = SFP_I2C_Bus()
 
-    a0_dump = sfp_bus.dumpA0()
-    a2_dump = sfp_bus.dumpA2()
+    log_fmt = "[%(asctime)s | %(levelname)s]: %(message)s"
+    logging.basicConfig(level=logging.DEBUG, format=log_fmt, datefmt="%I:%M:%S")
+    logging.debug("Application started")
 
-    print("Page 0xA0")
-    print_bus_dump(a0_dump, False)
-    print_bus_dump(a0_dump, True)
-    print("\n\nPage 0xA2")
-    print_bus_dump(a2_dump, False)
-    print_bus_dump(a2_dump, True)
-
-
-    # Create an sfp defined in modules/sfp,py
-    sfp = SFP(a0_dump, a2_dump)
-
-    # just debug, print diagnostic monitoring type
-    print(sfp.get_diagnostic_monitoring_type())
-
-    
-    print("{:<20} {:<20} {:<30} {:<30} {:<30}".format("Temperature (C)", "Voltage (V)", "TX Bias Current (mA)", "TX Power (0.1 uW)", "RX Power (0.1 uW)"))
-    # print(sfp.get_voltage_slope())
-    #print(sfp.get_voltage_offset())
     while True:
+
+        if not my_udp_socket:
+            logging.debug("Creating UDP Socket")
+            my_udp_socket = UDPSocket()
+
         
+        while my_udp_socket.state == UDPSocketState.UNDISCOVERED:
+            try:
+                raw_msg = my_udp_socket.myrecv()
+                received_cmd: Message = unpackRawBytes(raw_msg)
+
+                if received_cmd.code == MessageCode.DISCOVER:
+                    logging.debug('Has been discovered by the server')
+
+                    msg = Message(MessageCode.DOCK_DISCOVER_ACK, 'DOCKING STATION DISCOVERED')
+                    #logging.debug(f'Writing {msg.to_network_message()}')
+                    my_udp_socket.sock.sendto(msg.to_network_message(), (my_udp_socket.server_ip, my_udp_socket.server_port))
+                    my_udp_socket.state = UDPSocketState.DISCOVERED
+
+                    server_ip = my_udp_socket.server_ip
+                    server_port = my_udp_socket.server_port
+
+                    # Stop accepting broadcasts from the server once
+                    # it has been discovered. We don't want to process
+                    # thousands of backlogged discover requests
+                    # if we disconnect an hour into the application
+                    # running.
+                    my_udp_socket.sock.close()
+
+
+            except Exception as ex:
+                logging.debug(ex)
+
+            time.sleep(1)
+            logging.debug('Waiting for message...')
+        
+        # If we reach this point, the docking station has been discovered
+        # Attempt to initiate TCP connection with the server
+
+        if not my_tcp_socket:
+            logging.debug("Creating TCP socket")
+            my_tcp_socket = TCPSocket()
+
         try:
-            # Format measurements nicely
-            print("{:<20.5f} {:<20.5f} {:<30.5f} {:<30.5f} {:<30.5f}".format(sfp.get_temperature(), 
-                sfp.get_vcc() * 10**(-4), 
-                sfp.get_tx_bias_current() * 2 * 10**(-3), 
-                sfp.get_tx_power(), 
-                sfp.get_rx_power())
-            )
+            logging.debug(f'Attempting to connect to {server_ip}:{server_port}')
+            my_tcp_socket.connect(server_ip, server_port)
+            logging.debug(f'Connection successful!')
+            my_udp_socket = None
+        except Exception as ex:
+            # If there is an exception while connecting,
+            # change the state of the udp socket to
+            # undiscovered to allow reconnection
+            logging.debug(ex)
+            logging.debug('Connection error, reverting to undiscovered state')
+            my_udp_socket = None
+            break
 
-            # re-read the entirety of diagnostics memory
-            # should probably create a new function that ONLY
-            # reads the few values we need
-            a2_dump = sfp_bus.dumpA2()
+        while my_tcp_socket.state == TCPSocketState.CONNECTED:
+                        
+            #test_data = 'This is a CloudPlug'
+            #msg = Message(2411, test_data)
+            #my_tcp_socket.mysend(msg.to_network_message())
+
+            logging.debug('Awaiting TCP commands...')
+            try:
+                raw_msg = my_tcp_socket.myreceive()
+            except RuntimeError as ex:
+                my_tcp_socket.handle_server_disconnect()
+                my_tcp_socket = None
+                break
+
+            msg_code_int, *garbage = struct.unpack("!H254x", raw_msg)
+            code = MessageCode(msg_code_int)
+
+            register_read_cmds = [MessageCode.REAL_TIME_REFRESH, MessageCode.DIAGNOSTIC_INIT_A0, MessageCode.DIAGNOSTIC_INIT_A2]
+
+            if code in register_read_cmds:
+                received_cmd: ReadRegisterMessage = bytesToReadRegisterMessage(raw_msg)
+            else:
+                received_cmd: Message = unpackRawBytes(raw_msg)
+
+            if received_cmd.code == MessageCode.CLONE_SFP_MEMORY:
+                logging.debug('Trying to read SFP memory!')
+                try:
+                    a0_dump = sfp_bus.dumpA0()
+                    a2_dump = sfp_bus.dumpA2()
+
+                    #logging.debug("Page 0xA0")
+                    #print_bus_dump(a0_dump, False)
+                    #print_bus_dump(a0_dump, True)
+                    #logging.debug("\n\nPage 0xA2")
+                    #print_bus_dump(a2_dump, False)
+                    #print_bus_dump(a2_dump, True)
+                    
+                    try:
+                        mydb = mysql.connector.connect(
+                            host=server_ip,
+                            user="connor",
+                            password="cloudplug!@#@!",
+                            database="sfp_info",
+                            autocommit=True
+                        )
+
+                        mycursor = mydb.cursor()         
+                        insert_cloned_memory_to_database(mycursor, a0_dump, a2_dump)
+                        code = MessageCode.CLONE_SFP_MEMORY_SUCCESS
+                        data = "Successfully cloned SFP memory"
+                        msg = Message(code, data)
+
+                        my_tcp_socket.mysend(msg.to_network_message())
+
+                    except Exception as ex:
+                        logging.debug(ex)
+                
+                except Exception as ex:
+                    code = MessageCode.CLONE_SFP_MEMORY_ERROR
+                    data = "Error communicating with SFP"
+                    msg = Message(code, data)
+                    my_tcp_socket.mysend(msg.to_network_message())
+                    logging.debug(ex)
+            elif received_cmd.code in register_read_cmds:
+
+                response_vals = []
+                try:
+                    
+                    response_vals = sfp_bus.read_registers_from_page(received_cmd.register_numbers, received_cmd.page_number)
+
+                    if received_cmd.code == MessageCode.REAL_TIME_REFRESH:
+                        msg_code = MessageCode.REAL_TIME_REFRESH_ACK
+                    elif received_cmd.code == MessageCode.DIAGNOSTIC_INIT_A0:
+                        msg_code = MessageCode.DIAGNOSTIC_INIT_A0_ACK
+                    elif received_cmd.code == MessageCode.DIAGNOSTIC_INIT_A2:
+                        msg_code = MessageCode.DIAGNOSTIC_INIT_A2_ACK
+
+                    msg_response = ReadRegisterMessage(msg_code, "", received_cmd.page_number, response_vals)
+                    my_tcp_socket.mysend(msg_response.to_network_message())
+                    
+                except Exception as ex:
+                        # Send I2C error code
+                    msg = Message(MessageCode.I2C_ERROR, "Remote I/O error when reading SFP")
+                    my_tcp_socket.mysend(msg.to_network_message())
+
+
+            time.sleep(0.3)
+
+        time.sleep(1)
             
-            # Update the page in the sfp object
-            sfp.page_a2 = a2_dump
 
-            # Sleep for some time
-            time.sleep(0.5)
-        except KeyboardInterrupt as ex:
-            print("\nKeyboard Interrupt, closing bus communication and exiting...")
-            sfp_bus.end_communication()
-            return
+
+    return
+
     
-    
+
 if __name__ == '__main__':
     main()
